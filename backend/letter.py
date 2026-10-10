@@ -7,6 +7,7 @@ a fixed template is used instead, so the demo never breaks.
 
 import json
 import os
+import threading
 from datetime import date
 
 from dotenv import load_dotenv
@@ -14,6 +15,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-flash-latest")
+GEMINI_TIMEOUT_S = float(os.getenv("GEMINI_LETTER_TIMEOUT", "12"))
 
 
 def template_letter(official, mismatches, photos):
@@ -53,6 +55,18 @@ def write_letter(official, mismatches, photos):
         return {"letter_text": "", "pidgin_summary": "We no see any big difference between your evidence and the official record.", "source": "none"}
 
     base = template_letter(official, mismatches, photos)
+    # Hard time limit: if Gemini is slow, return the template instantly so the app never stalls.
+    box = {}
+    worker = threading.Thread(target=lambda: box.update(result=_gemini_letter(base, photos)), daemon=True)
+    worker.start()
+    worker.join(GEMINI_TIMEOUT_S)
+    if worker.is_alive():
+        print(f"Gemini letter took over {GEMINI_TIMEOUT_S}s, using template")
+        return base
+    return box.get("result") or base
+
+
+def _gemini_letter(base, photos):
     try:
         from google import genai
 
