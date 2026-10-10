@@ -1,142 +1,162 @@
-"use client"; // runs on the phone: needed for the camera, GPS and crypto
+"use client"; // runs on the phone: camera, audio and downloads
 
-import { useState } from "react";
-import { STRINGS } from "@/lib/strings";
-import { SHOTS, FAKE_CHECKS, FAKE_REPORT, SAMPLE_META } from "@/lib/fake";
-import { checkPhoto, readReport, compare, writeLetter, speak, USE_FAKE } from "@/lib/api";
-import { Shell, BigButton, Loading, PhotoWithBoxes, SeverityTag, ErrorNote } from "@/components/ui";
+import { useEffect, useRef, useState } from "react";
+import { STRINGS, VOICE_FOR, LOCALE } from "@/lib/strings";
+import { SAMPLE_FIELDS } from "@/lib/fake";
+import { DEMO, readNotice, checkNotice, explainNotice, speak, getDefenses, makeAnswer, getLegalAid, closedLabel } from "@/lib/api";
+import { Shell, BigButton, Loading, CheckCard, Field, Icon, inputClass, ErrorNote } from "@/components/ui";
 
-// Which photo to show as the thumbnail on each mismatch card
-const SHOT_FOR_LINE = { date: "leak_point", cause: "leak_point", location: "wide", volume_barrels: "wide", area: "wide" };
+const EMPTY_EXTRAS = { monthly_rent: null, locked_out: null, utilities_cut: false, rent_period: null };
+const todayIso = () => new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD, local
 
-// Screens: 0 Home → 1 Capture (3 shots) → 2 Report → 3 Mismatches → 4 Letter.
-// Everything lives in memory only. Closing or refreshing the page erases it (Zero Data).
-export default function Witness() {
-  const [lang, setLang] = useState("english");
+// Screens: 0 Home → 1 Check the details → 2 Deadline → 3 Answer → 4 Help.
+// Everything lives in memory. Refreshing the page erases it. Nothing is saved.
+export default function SevenDays() {
+  const [place, setPlace] = useState("atlanta"); // "atlanta" | "lagos"
+  const [lang, setLang] = useState("en");
   const [step, setStep] = useState(0);
-  const [shotIndex, setShotIndex] = useState(0);
-  const [photos, setPhotos] = useState({}); // shot → { url, file, check, taken_at, gps, hash }
-  const [report, setReport] = useState(null); // { url, file, data }
-  const [mismatches, setMismatches] = useState([]);
-  const [letter, setLetter] = useState(null);
-  const [busy, setBusy] = useState(null); // loading message, or null
+  const [photoUrl, setPhotoUrl] = useState(null);
+  const [fields, setFields] = useState(null);
+  const [unclear, setUnclear] = useState([]);
+  const [readFailed, setReadFailed] = useState(false);
+  const [extras, setExtras] = useState(EMPTY_EXTRAS);
+  const [result, setResult] = useState(null);
+  const [defenses, setDefenses] = useState([]);
+  const [picked, setPicked] = useState([]);
+  const [ownWords, setOwnWords] = useState("");
+  const [phone, setPhone] = useState("");
+  const [downloaded, setDownloaded] = useState(false);
+  const [places, setPlaces] = useState([]);
+  const [busy, setBusy] = useState(null); // { message, sub } while waiting
   const [error, setError] = useState(null);
-  const [audioUrl, setAudioUrl] = useState(null);
+  const lastTask = useRef(null);
 
   const t = STRINGS[lang];
-  const shot = SHOTS[shotIndex];
+  const isLagos = place === "lagos";
 
-  // Runs a backend call with a loading message and a friendly error.
-  async function run(message, task) {
+  // Keep <html lang> in step with the chosen language for screen readers.
+  useEffect(() => {
+    document.documentElement.lang = lang === "es" ? "es" : lang === "pcm" ? "pcm" : "en";
+  }, [lang]);
+
+  function choosePlace(p) {
+    setPlace(p);
+    setLang("en");
+  }
+
+  // Runs a backend call with a waiting screen. On failure, the person's work
+  // stays on screen and "Try again" repeats the same call.
+  async function run(wait, task) {
+    lastTask.current = { wait, task };
     setError(null);
-    setBusy(message);
+    if (wait) setBusy(wait); // quick steps (wait = null) skip the waiting screen
     try {
       await task();
     } catch (err) {
-      console.error(err);
+      console.warn(err);
       setError(t.error);
     } finally {
       setBusy(null);
     }
   }
-
-  // Photos in shot order, in the shape /compare and /letter expect.
-  function photosForApi() {
-    return SHOTS.filter((s) => photos[s]).map((s) => ({
-      check: photos[s].check,
-      taken_at: photos[s].taken_at,
-      gps: photos[s].gps,
-      hash: photos[s].hash,
-    }));
-  }
+  const retry = () => lastTask.current && run(lastTask.current.wait, lastTask.current.task);
 
   // ---------- actions ----------
 
-  function onShotPicked(e) {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // lets the same photo be picked again after a retake
-    if (!file) return;
-    const url = URL.createObjectURL(file);
-    // SATURDAY: record taken_at, get GPS with navigator.geolocation,
-    // and hash the file with crypto.subtle.digest("SHA-256", ...) right here.
-    run(t.checkingPhoto, async () => {
-      const check = await checkPhoto(file, shot);
-      setPhotos((prev) => ({ ...prev, [shot]: { url, file, check, taken_at: null, gps: null, hash: null } }));
-    });
-  }
-
-  function nextShot() {
-    if (shotIndex < SHOTS.length - 1) setShotIndex(shotIndex + 1);
-    else setStep(2);
-  }
-
-  function onReportPicked(e) {
+  function onPhoto(e) {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    run(t.readingReport, async () => {
-      const data = await readReport(file);
-      setReport({ url, file, data });
+    setPhotoUrl(URL.createObjectURL(file));
+    run({ message: t.reading, sub: t.readingSub }, async () => {
+      const r = await readNotice(file, place);
+      setFields({ ...r.fields, jurisdiction: place });
+      setUnclear(r.unclear || []);
+      setReadFailed(r.source === "manual");
+      setStep(1);
     });
   }
 
-  function findMismatches() {
-    run(t.comparing, async () => {
-      const result = await compare(report.data, photosForApi(), lang);
-      setMismatches(result.mismatches);
+  function useSample() {
+    setPhotoUrl(null);
+    setFields({ ...SAMPLE_FIELDS[place] });
+    setUnclear([]);
+    setReadFailed(false);
+    if (place === "lagos") setExtras((x) => ({ ...x, rent_period: "yearly" }));
+    setStep(1);
+  }
+
+  // Field checks on the Check screen. Dates are never silently replaced.
+  const errors = {};
+  if (fields && !isLagos && fields.served_on && fields.served_on > todayIso()) errors.served_on = t.errFuture;
+  if (fields && isLagos && fields.notice_date && fields.vacate_by && fields.vacate_by < fields.notice_date)
+    errors.vacate_by = t.errLeaveBeforeNotice;
+  const hasDates = isLagos ? fields?.notice_date && fields?.vacate_by && extras.rent_period : Boolean(fields?.served_on);
+  const canConfirm = hasDates && Object.keys(errors).length === 0;
+
+  function confirmFields() {
+    run(isLagos ? { message: t.checkingLagos } : { message: t.checking, sub: t.checkingSub }, async () => {
+      setResult(await checkNotice(fields, { ...extras, locked_out: Boolean(extras.locked_out) }));
+      setStep(2);
+    });
+  }
+
+  function toAnswer() {
+    run(null, async () => {
+      if (!isLagos && defenses.length === 0) setDefenses(await getDefenses());
       setStep(3);
     });
   }
 
-  function makeLetter() {
-    run(t.writingLetter, async () => {
-      const result = await writeLetter(report.data, mismatches, photosForApi());
-      setLetter(result);
+  function download() {
+    setDownloaded(false);
+    run({ message: t.makingPdf, sub: t.makingPdfSub }, async () => {
+      const blob = await makeAnswer({
+        fields,
+        extras: { ...extras, locked_out: Boolean(extras.locked_out) },
+        tenant: { phone: phone || null },
+        selected_defenses: picked,
+        own_words: ownWords,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = isLagos ? "reply-letter-draft.pdf" : "answer-draft.pdf";
+      a.click();
+      setDownloaded(true);
+    });
+  }
+
+  function toHelp() {
+    run(null, async () => {
+      setPlaces((await getLegalAid(place)).places);
       setStep(4);
     });
   }
 
-  function listen() {
-    const text = lang === "pidgin" ? letter.pidgin_summary : letter.letter_text;
-    run(t.loadingAudio, async () => {
-      const blob = await speak(text, lang);
-      if (!blob) return; // faked until /speak is live
-      const url = URL.createObjectURL(blob);
-      setAudioUrl(url);
-      new Audio(url).play();
-    });
-  }
-
-  function loadSampleCase() {
-    // SATURDAY: put the sample photos in /public/sample/ and set url to e.g. "/sample/leak_point.jpg".
-    const sample = {};
-    for (const s of SHOTS) sample[s] = { url: null, file: null, check: FAKE_CHECKS[s], ...SAMPLE_META[s] };
-    setPhotos(sample);
-    setReport({ url: null, file: null, data: FAKE_REPORT });
-    setShotIndex(0);
-    setStep(1);
-  }
-
   function startOver() {
     setStep(0);
-    setShotIndex(0);
-    setPhotos({});
-    setReport(null);
-    setMismatches([]);
-    setLetter(null);
-    setAudioUrl(null);
+    setPhotoUrl(null);
+    setFields(null);
+    setResult(null);
+    setPicked([]);
+    setOwnWords("");
+    setPhone("");
+    setDownloaded(false);
     setError(null);
+    setExtras(EMPTY_EXTRAS);
   }
 
-  const shellProps = { t, lang, setLang, step };
+  const shell = { t, lang, setLang, place, step, demo: DEMO };
+  const errorNote = <ErrorNote message={error} onRetry={retry} retryLabel={t.retry} />;
+  const deadline = result?.deadline;
 
   // ---------- screens ----------
 
   if (busy) {
     return (
-      <Shell {...shellProps}>
-        <Loading message={busy} />
+      <Shell {...shell}>
+        <Loading message={busy.message} sub={busy.sub} />
       </Shell>
     );
   }
@@ -145,237 +165,522 @@ export default function Witness() {
   if (step === 0) {
     return (
       <Shell
-        {...shellProps}
+        {...shell}
         footer={
           <div className="space-y-3">
-            <BigButton onClick={() => setStep(1)}>{t.start}</BigButton>
-            <button type="button" onClick={loadSampleCase} className="w-full py-1 text-sm text-ink/40">
-              {t.sample}
-            </button>
-          </div>
-        }
-      >
-        <h1 className="mt-10 text-4xl font-semibold leading-tight tracking-tight text-ink">{t.tagline}</h1>
-        <ol className="mt-10 space-y-5">
-          {t.howItWorks.map((line, i) => (
-            <li key={line} className="flex items-center gap-4 text-lg">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand text-base font-semibold text-white">
-                {i + 1}
-              </span>
-              {line}
-            </li>
-          ))}
-        </ol>
-      </Shell>
-    );
-  }
-
-  // 1. Capture: one shot per screen
-  if (step === 1) {
-    const current = photos[shot];
-    const usable = current?.check?.usable;
-    const cameraInput = (
-      <input type="file" accept="image/*" capture="environment" className="hidden" onChange={onShotPicked} />
-    );
-    return (
-      <Shell
-        {...shellProps}
-        footer={
-          !current ? (
             <BigButton as="label">
-              {cameraInput}
+              <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={onPhoto} />
               {t.takePhoto}
             </BigButton>
-          ) : (
-            <div className="space-y-3">
-              {usable && <BigButton onClick={nextShot}>{t.next}</BigButton>}
-              <BigButton as="label" variant={usable ? "secondary" : "primary"}>
-                {cameraInput}
-                {t.retake}
-              </BigButton>
-            </div>
-          )
+            <BigButton variant="secondary" onClick={useSample}>{t.useSample}</BigButton>
+          </div>
         }
       >
-        <p className="text-sm font-medium text-brand">{t.photoOf(shotIndex + 1)}</p>
-        <h1 className="mt-1 text-3xl font-semibold tracking-tight">{t.shots[shot]}</h1>
-        <p className="mt-2 text-lg text-ink/70">{t.shotHints[shot]}</p>
-
-        {current && (
-          <div className="mt-6 space-y-4">
-            <PhotoWithBoxes url={current.url} boxes={current.check.boxes} label={t.shots[shot]} />
-            <div className={`rounded-2xl p-4 ${usable ? "bg-brand-soft" : "bg-warn-soft"}`}>
-              <p className={`font-semibold ${usable ? "text-brand" : "text-warn-dark"}`}>
-                {usable ? t.usable : t.notUsable}
-              </p>
-              <p className="mt-1">{current.check.reason}</p>
-              {usable && <p className="mt-2 text-ink/70">{current.check.damage_seen}</p>}
-              {current.check.needs_expert_review && (
-                <span className="mt-3 inline-block rounded-full bg-white px-2.5 py-1 text-xs font-medium text-brand">
-                  {t.expertReview}
-                </span>
-              )}
-            </div>
+        <fieldset>
+          <legend className="text-[15px] font-semibold text-ink">{t.whereIsHome}</legend>
+          <div className="mt-2.5 grid grid-cols-2 gap-2">
+            {[["atlanta", t.atlanta], ["lagos", t.lagos]].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => choosePlace(value)}
+                aria-pressed={place === value}
+                className={`flex min-h-14 items-center justify-center gap-2 rounded-xl border-2 px-3 text-base font-semibold ${
+                  place === value ? "border-ink bg-ink text-white" : "border-line text-ink hover:border-ink"
+                }`}
+              >
+                {place === value && <Icon name="check" className="h-4 w-4" />}
+                {label}
+              </button>
+            ))}
           </div>
-        )}
-        <ErrorNote message={error} />
+        </fieldset>
+
+        <h1 className="mt-9 text-[2.1rem] leading-[1.08] font-extrabold tracking-tight text-balance text-ink">
+          {isLagos ? t.homeTitleLagos : t.homeTitle}
+        </h1>
+        <p className="mt-4 text-lg leading-relaxed text-ink">{isLagos ? t.homeBodyLagos : t.homeBody}</p>
+        <p className="mt-6 flex items-start gap-2 text-[15px] leading-relaxed text-ink-soft">
+          <Icon name="lock" className="mt-0.5 h-4 w-4 shrink-0" /> {t.privacy}
+        </p>
+        {errorNote}
       </Shell>
     );
   }
 
-  // 2. Report photo
-  if (step === 2) {
-    const reportInput = (
-      <input type="file" accept="image/*" capture="environment" className="hidden" onChange={onReportPicked} />
-    );
+  // 1. Check the details
+  if (step === 1) {
+    const set = (k) => (e) => setFields((f) => ({ ...f, [k]: e.target.value || null }));
+    const flag = (k) => unclear.includes(k);
+    const describedBy = (id, hint) => [hint && `${id}-hint`, errors[id] && `${id}-error`].filter(Boolean).join(" ") || undefined;
+    const fieldInput = (id, extra = {}) => ({
+      id,
+      className: `${inputClass} ${flag(id) ? "border-mark" : ""} ${errors[id] ? "border-urgent" : ""}`,
+      "aria-invalid": errors[id] ? true : undefined,
+      ...extra,
+    });
+
     return (
       <Shell
-        {...shellProps}
+        {...shell}
         footer={
-          !report ? (
-            <BigButton as="label">
-              {reportInput}
-              {t.snapReport}
-            </BigButton>
-          ) : (
-            <div className="space-y-3">
-              <BigButton onClick={findMismatches}>{t.findMismatches}</BigButton>
-              <BigButton as="label" variant="secondary">
-                {reportInput}
-                {t.retake}
-              </BigButton>
-            </div>
-          )
+          <>
+            {!hasDates && <p className="mb-2.5 text-center text-sm text-ink">{isLagos ? t.needLagosDates : t.needServedDate}</p>}
+            <BigButton onClick={confirmFields} disabled={!canConfirm}>{t.confirm}</BigButton>
+          </>
         }
       >
-        <h1 className="text-3xl font-semibold tracking-tight">{t.reportTitle}</h1>
-        <p className="mt-2 text-lg text-ink/70">{t.reportHint}</p>
+        <h1 className="text-[1.65rem] leading-tight font-extrabold tracking-tight">{t.confirmTitle}</h1>
+        <p className={`mt-2 text-[15px] leading-relaxed ${readFailed ? "font-semibold text-ink" : "text-ink-soft"}`}>
+          {readFailed ? t.couldNotRead : t.confirmBody}
+        </p>
 
-        {report && (
-          <div className="mt-6 space-y-4">
-            <PhotoWithBoxes url={report.url} label={t.reportTitle} />
-            <div className="rounded-2xl bg-brand-soft p-4">
-              <p className="font-semibold text-brand">{t.reportFound}</p>
-              <dl className="mt-3 space-y-2">
-                {Object.entries(t.fields).map(([key, label]) => (
-                  <div key={key} className="flex justify-between gap-4">
-                    <dt className="text-ink/60">{label}</dt>
-                    <dd className="text-right font-medium">{String(report.data[key] ?? "—")}</dd>
-                  </div>
-                ))}
-              </dl>
-            </div>
-          </div>
+        {photoUrl && (
+          <a href={photoUrl} target="_blank" rel="noreferrer" aria-label={t.photoLabel} className="mt-4 block">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={photoUrl} alt="" className="h-36 w-full rounded-xl border border-line bg-page object-contain" />
+          </a>
         )}
-        <ErrorNote message={error} />
-      </Shell>
-    );
-  }
-
-  // 3. Mismatches
-  if (step === 3) {
-    return (
-      <Shell {...shellProps} footer={<BigButton onClick={makeLetter}>{t.writeLetter}</BigButton>}>
-        <h1 className="text-3xl font-semibold tracking-tight">{t.mismatchesTitle}</h1>
-        <p className="mt-2 text-ink/60">{t.expertNote}</p>
 
         <div className="mt-6 space-y-5">
-          {mismatches.map((m, i) => {
-            const thumb = photos[SHOT_FOR_LINE[m.report_line]] ?? photos[SHOTS[0]];
-            const line = report?.data?.lines?.[m.report_line] ?? String(report?.data?.[m.report_line] ?? "");
-            return (
-              <article key={i} className="rounded-2xl border-2 border-warn/60 bg-warn-soft/50 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <h2 className="text-xl font-semibold">{m.title}</h2>
-                  <SeverityTag severity={m.severity} labels={t.severity} />
+          {isLagos ? (
+            <>
+              <Field id="notice_date" label={t.fields.notice_date} flagged={flag("notice_date")} flagText={t.unsure}>
+                <input type="date" {...fieldInput("notice_date")} value={fields.notice_date ?? ""} onChange={set("notice_date")} aria-describedby={describedBy("notice_date")} />
+              </Field>
+              <Field id="vacate_by" label={t.fields.vacate_by} flagged={flag("vacate_by")} flagText={t.unsure} error={errors.vacate_by}>
+                <input type="date" {...fieldInput("vacate_by")} value={fields.vacate_by ?? ""} onChange={set("vacate_by")} aria-describedby={describedBy("vacate_by")} />
+              </Field>
+              <Field id="rent_period" label={t.fields.rent_period}>
+                <select
+                  id="rent_period"
+                  className={inputClass}
+                  value={extras.rent_period ?? ""}
+                  onChange={(e) => setExtras((x) => ({ ...x, rent_period: e.target.value || null }))}
+                >
+                  <option value="">{t.choose}</option>
+                  {Object.entries(t.rentPeriods).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              </Field>
+              <Field id="landlord_name" label={t.fields.landlord_name} flagged={flag("landlord_name")} flagText={t.unsure}>
+                <input {...fieldInput("landlord_name")} value={fields.landlord_name ?? ""} onChange={set("landlord_name")} />
+              </Field>
+            </>
+          ) : (
+            <>
+              <Field id="served_on" label={t.fields.served_on} hint={t.fields.served_on_hint} flagged={flag("served_on")} flagText={t.unsure} error={errors.served_on}>
+                <input type="date" {...fieldInput("served_on")} value={fields.served_on ?? ""} onChange={set("served_on")} aria-describedby={describedBy("served_on", true)} />
+              </Field>
+              <Field id="landlord_name" label={t.fields.landlord_name} flagged={flag("landlord_name")} flagText={t.unsure}>
+                <input {...fieldInput("landlord_name")} value={fields.landlord_name ?? ""} onChange={set("landlord_name")} />
+              </Field>
+              <Field id="amount_claimed" label={t.fields.amount_claimed} flagged={flag("amount_claimed")} flagText={t.unsure}>
+                <input
+                  inputMode="decimal"
+                  {...fieldInput("amount_claimed")}
+                  value={fields.amount_claimed ?? ""}
+                  onChange={(e) => setFields((f) => ({ ...f, amount_claimed: e.target.value === "" ? null : Number(e.target.value) }))}
+                />
+              </Field>
+              <Field id="court" label={t.fields.court} flagged={flag("court")} flagText={t.unsure}>
+                <input {...fieldInput("court")} value={fields.court ?? ""} onChange={set("court")} />
+              </Field>
+              <Field id="case_number" label={t.fields.case_number} flagged={flag("case_number")} flagText={t.unsure}>
+                <input {...fieldInput("case_number")} value={fields.case_number ?? ""} onChange={set("case_number")} />
+              </Field>
+
+              <section className="border-t border-line pt-6" aria-labelledby="quick-q">
+                <h2 id="quick-q" className="text-base font-bold">
+                  {t.quickQuestions} <span className="font-normal text-ink-soft">({t.optional})</span>
+                </h2>
+                <div className="mt-4 space-y-5">
+                  <Field id="monthly_rent" label={t.monthlyRent} optional={t.optional}>
+                    <input
+                      id="monthly_rent"
+                      inputMode="decimal"
+                      className={inputClass}
+                      value={extras.monthly_rent ?? ""}
+                      onChange={(e) => setExtras((x) => ({ ...x, monthly_rent: e.target.value === "" ? null : Number(e.target.value) }))}
+                    />
+                  </Field>
+                  <YesNo
+                    label={t.lockedOut}
+                    yes={t.yes}
+                    no={t.no}
+                    value={extras.locked_out}
+                    onChange={(v) => setExtras((x) => ({ ...x, locked_out: v, utilities_cut: v }))}
+                  />
                 </div>
-                <p className="mt-2 text-lg">{lang === "pidgin" ? m.pidgin : m.plain_english}</p>
-
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  <div className="rounded-xl bg-white p-3">
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink/50">{t.officialSays}</p>
-                    <p className="mt-1 font-medium">{m.official_says}</p>
-                  </div>
-                  <div className="rounded-xl border-2 border-warn bg-white p-3">
-                    <p className="text-xs font-medium uppercase tracking-wide text-warn-dark">{t.evidenceShows}</p>
-                    <p className="mt-1 font-medium">{m.evidence_shows}</p>
-                  </div>
-                </div>
-
-                {thumb && (
-                  <div className="mt-3 w-28">
-                    <PhotoWithBoxes url={thumb.url} label={t.shots[thumb.check?.shot_type] ?? ""} />
-                  </div>
-                )}
-
-                {line && (
-                  <div className="mt-3 rounded-xl bg-white p-3">
-                    <p className="text-xs font-medium uppercase tracking-wide text-ink/50">{t.fromReport}</p>
-                    <p className="mt-1">
-                      <mark className="rounded bg-warn/40 px-1 text-ink">{line}</mark>
-                    </p>
-                  </div>
-                )}
-              </article>
-            );
-          })}
+              </section>
+            </>
+          )}
         </div>
-        <ErrorNote message={error} />
+        {errorNote}
       </Shell>
     );
   }
 
-  // 4. Letter + Listen
-  const shareText = encodeURIComponent(lang === "pidgin" ? letter.pidgin_summary : letter.letter_text);
-  return (
-    <Shell
-      {...shellProps}
-      footer={
-        <div className="space-y-3">
-          <BigButton as="a" href={`https://wa.me/?text=${shareText}`} target="_blank" rel="noreferrer">
-            {t.shareWhatsApp}
-          </BigButton>
-          <div className="grid grid-cols-2 gap-3">
-            {/* SATURDAY: build the PDF with jsPDF here */}
-            <BigButton variant="secondary" disabled>
-              {t.downloadPdf}
+  // 2. Deadline
+  if (step === 2 && result) {
+    const translate = (c) => {
+      const tr = t.cards[c.id];
+      return tr ? { title: tr.title, body: tr.body({ fields, extras, result }) } : { title: c.title, body: c.body };
+    };
+    const rank = { red: 0, amber: 1, info: 2 };
+    return (
+      <Shell
+        {...shell}
+        footer={<BigButton onClick={toAnswer}>{isLagos ? t.startReply : t.startAnswer}</BigButton>}
+      >
+        {isLagos ? (
+          <LagosVerdict t={t} check={result.notice_check} />
+        ) : (
+          <Countdown t={t} d={deadline} lang={lang} onHelp={toHelp} />
+        )}
+
+        <Listen key={lang} t={t} fields={fields} extras={extras} lang={lang} />
+
+        <section className="mt-10" aria-labelledby="checks">
+          <h2 id="checks" className="text-lg font-bold">{t.thingsToCheck}</h2>
+          <ul className="mt-3 space-y-3">
+            {result.cards
+              // the hero already says these two; don't repeat them as cards
+              .filter((c) => !["deadline_missed", "due_today"].includes(c.id))
+              .sort((a, b) => (rank[a.level] ?? 3) - (rank[b.level] ?? 3))
+              .map((c) => <CheckCard key={c.id} level={c.level} {...translate(c)} />)}
+          </ul>
+        </section>
+        {errorNote}
+      </Shell>
+    );
+  }
+
+  // 3. Answer
+  if (step === 3) {
+    return (
+      <Shell
+        {...shell}
+        footer={
+          <div className="space-y-3">
+            <BigButton variant={downloaded ? "secondary" : "primary"} onClick={download}>
+              {isLagos ? t.downloadReply : t.downloadAnswer}
             </BigButton>
-            <BigButton variant="secondary" onClick={listen} disabled={USE_FAKE.speak}>
-              {t.listen}
-            </BigButton>
+            {downloaded && (
+              <BigButton variant="help" onClick={toHelp}>
+                {t.next} <Icon name="arrow" />
+              </BigButton>
+            )}
           </div>
-          <button type="button" onClick={startOver} className="w-full py-1 text-sm text-ink/40">
-            {t.startOver}
-          </button>
-        </div>
-      }
-    >
-      <h1 className="text-3xl font-semibold tracking-tight">{t.letterTitle}</h1>
-      {USE_FAKE.speak && <p className="mt-1 text-sm text-ink/50">PDF · {t.listen}: {t.comingSoon}</p>}
+        }
+      >
+        <h1 className="text-[1.65rem] leading-tight font-extrabold tracking-tight">{isLagos ? t.startReply : t.answerTitle}</h1>
+        {!isLagos && deadline && deadline.status !== "missed" && (
+          <p className="mt-3 inline-flex flex-wrap items-baseline gap-x-1.5 rounded-lg bg-page px-3 py-2 text-[15px]">
+            {t.dueBy} <strong className="highlight">{longDate(deadline.deadline, lang)}, {deadline.deadline_time}</strong>
+          </p>
+        )}
 
-      {lang === "pidgin" && (
-        <p className="mt-4 rounded-2xl bg-brand-soft p-4 text-lg">{letter.pidgin_summary}</p>
+        {!isLagos && (
+          <>
+            <p className="mt-5 text-lg font-semibold leading-snug">{t.answerBody}</p>
+            <p className="mt-1.5 text-[15px] leading-relaxed text-ink-soft">{t.answerSupport}</p>
+            <fieldset className="mt-5">
+              <legend className="sr-only">{t.answerTitle}</legend>
+              <ul className="space-y-2">
+                {defenses.map((d) => {
+                  const on = picked.includes(d.id);
+                  return (
+                    <li key={d.id}>
+                      <label className={`flex min-h-14 cursor-pointer gap-3 rounded-xl border-2 px-3.5 py-3 ${on ? "border-ink bg-page" : "border-line hover:border-ink-soft"}`}>
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 h-5 w-5 shrink-0 accent-[#15233f]"
+                          checked={on}
+                          onChange={() => setPicked((p) => (on ? p.filter((x) => x !== d.id) : [...p, d.id]))}
+                        />
+                        <span className="text-[15px] leading-snug">{t.defenses[d.id] ?? d.text}</span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            </fieldset>
+            <div className="mt-7 space-y-5">
+              <Field id="own_words" label={t.ownWords} optional={t.optional}>
+                <textarea id="own_words" rows={4} className={inputClass} placeholder={t.ownWordsPlaceholder} value={ownWords} onChange={(e) => setOwnWords(e.target.value)} />
+              </Field>
+              <Field id="phone" label={t.yourPhone} optional={t.optional} hint={t.phoneHint}>
+                <input id="phone" type="tel" autoComplete="tel" className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} aria-describedby="phone-hint" />
+              </Field>
+            </div>
+            {t.draftLanguage && <p className="mt-4 text-sm text-ink-soft">{t.draftLanguage}</p>}
+          </>
+        )}
+
+        <p className="mt-6 flex items-start gap-2.5 rounded-xl border border-line px-4 py-3 text-[15px] leading-relaxed">
+          <Icon name="info" className="mt-0.5 h-5 w-5 shrink-0 text-ink-soft" />
+          {isLagos ? t.replyReminder : t.filingReminder}
+        </p>
+        {downloaded && (
+          <p className="mt-4 flex items-center gap-2 font-semibold text-help" role="status">
+            <Icon name="check" /> {t.downloaded}
+          </p>
+        )}
+        {errorNote}
+      </Shell>
+    );
+  }
+
+  // 4. Help
+  return (
+    <Shell {...shell} footer={<BigButton variant="secondary" onClick={startOver}>{t.startOver}</BigButton>}>
+      <h1 className="text-[1.65rem] leading-tight font-extrabold tracking-tight text-balance">{isLagos ? t.helpTitleLagos : t.helpTitle}</h1>
+      {!isLagos && deadline && deadline.status !== "missed" && (
+        <p className="mt-4 text-lg leading-snug">
+          {t.answerBy} <strong className="highlight">{longDate(deadline.deadline, lang)}, {deadline.deadline_time}</strong>
+        </p>
       )}
+      <p className="mt-3 text-[15px] leading-relaxed text-ink">{t.helpBody}</p>
 
-      <div className="mt-4 whitespace-pre-wrap rounded-2xl border border-brand-soft p-4 text-[15px] leading-relaxed">
-        {letter.letter_text}
-      </div>
-
-      <h2 className="mt-6 text-lg font-semibold">{t.fingerprints}</h2>
-      <ul className="mt-3 space-y-3">
-        {SHOTS.filter((s) => photos[s]).map((s) => (
-          <li key={s} className="rounded-xl bg-brand-soft p-3 text-sm">
-            <p className="font-medium">{t.shots[s]}</p>
-            <p className="mt-1 text-ink/70">
-              {photos[s].taken_at ?? t.pending} · {photos[s].gps ? photos[s].gps.join(", ") : t.pending}
-            </p>
-            <p className="mt-1 break-all font-mono text-xs">SHA-256: {photos[s].hash ?? t.pending}</p>
+      <ul className="mt-6 space-y-3">
+        {places.map((p) => (
+          <li key={p.name} className="rounded-xl border-2 border-help-soft px-4 py-4">
+            <p className="text-[17px] font-bold leading-snug text-ink">{p.name}</p>
+            {p.address && <p className="mt-1 text-[15px]">{p.address}</p>}
+            {p.phone && (
+              <a href={`tel:${p.phone}`} className="mt-2 inline-flex min-h-11 items-center font-semibold text-help underline underline-offset-4">
+                {p.phone}
+              </a>
+            )}
+            {p.website && (
+              <a
+                href={p.website}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={t.visitSiteLabel(p.name)}
+                className="mt-1 flex min-h-11 items-center gap-1.5 font-semibold text-help underline underline-offset-4"
+              >
+                {t.visitSite(p.name)} <Icon name="arrow" className="h-4 w-4" />
+              </a>
+            )}
+            {p.verify && <p className="mt-1 text-sm text-ink-soft">{t.checkDetails}</p>}
           </li>
         ))}
       </ul>
-
-      {audioUrl && <audio className="mt-4 w-full" controls src={audioUrl} />}
-      <ErrorNote message={error} />
+      {!isLagos && <p className="mt-6 text-[15px] leading-relaxed">{t.fileWhere}</p>}
+      <p className="mt-6 text-sm text-ink-soft">{t.startOverNote}</p>
+      {errorNote}
     </Shell>
+  );
+}
+
+// ---------- pieces used above ----------
+
+function longDate(isoDate, lang) {
+  return new Date(`${isoDate}T00:00:00Z`).toLocaleDateString(LOCALE[lang] || "en-US", {
+    weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "UTC",
+  });
+}
+
+function YesNo({ label, yes, no, value, onChange }) {
+  return (
+    <fieldset>
+      <legend className="text-[15px] font-semibold text-ink">{label}</legend>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        {[[true, yes], [false, no]].map(([v, l]) => (
+          <button
+            key={l}
+            type="button"
+            aria-pressed={value === v}
+            onClick={() => onChange(v)}
+            className={`flex min-h-12 items-center justify-center gap-1.5 rounded-xl border-2 font-semibold ${
+              value === v ? "border-ink bg-ink text-white" : "border-line hover:border-ink"
+            }`}
+          >
+            {value === v && <Icon name="check" className="h-4 w-4" />}
+            {l}
+          </button>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+// The deadline hero: the number with the highlighter, the date, how it was
+// counted, and what it means. Three states: open, due today, possibly missed.
+function Countdown({ t, d, lang, onHelp }) {
+  if (!d) return null;
+  return (
+    <section aria-labelledby="deadline-heading" aria-live="polite">
+      <p className="text-[15px] font-semibold text-ink-soft">{t.yourDeadline}</p>
+
+      {d.status === "missed" && (
+        <>
+          <h1 id="deadline-heading" className="mt-2 flex items-start gap-2.5 text-[1.75rem] leading-tight font-extrabold">
+            <span className="mt-1 text-urgent"><Icon name="alert" className="h-7 w-7" /></span>
+            {t.missed}
+          </h1>
+          <p className="mt-3 text-lg leading-relaxed">{t.missedBody}</p>
+          <div className="mt-5">
+            <BigButton variant="help" onClick={onHelp}>{t.getHelpNow}</BigButton>
+          </div>
+        </>
+      )}
+
+      {d.status === "due_today" && (
+        <>
+          <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-urgent px-3 py-1 text-sm font-bold text-white">
+            <Icon name="alert" className="h-4 w-4" /> {t.dueTodayBadge}
+          </p>
+          <h1 id="deadline-heading" className="mt-3">
+            <span className="highlight text-[clamp(3rem,17vw,4.5rem)] leading-none font-extrabold tracking-tight whitespace-nowrap tabular-nums">
+              {d.deadline_time}
+            </span>
+          </h1>
+          <p className="mt-4 text-xl leading-snug">{t.dueTodayBody}</p>
+        </>
+      )}
+
+      {d.status === "open" && (
+        <>
+          <h1 id="deadline-heading" className="mt-1 flex items-end gap-3">
+            <span className="highlight text-[clamp(5.5rem,27vw,7rem)] leading-[0.95] font-extrabold tracking-tighter tabular-nums">
+              {d.days_left}
+            </span>
+            <span className="pb-3 text-2xl font-bold">{t.daysLeft(d.days_left)}</span>
+          </h1>
+          <p className="mt-5 text-xl leading-snug">
+            {t.answerBy} <strong>{longDate(d.deadline, lang)}</strong>
+          </p>
+          <p className="text-[1.65rem] font-extrabold tracking-tight">{d.deadline_time}</p>
+        </>
+      )}
+
+      {d.status !== "missed" && <DayStrip t={t} d={d} lang={lang} />}
+      {d.status !== "missed" && <p className="mt-5 text-[15px] leading-relaxed text-ink">{t.deadlineMeans}</p>}
+    </section>
+  );
+}
+
+// Every day from service to deadline, so people can see the weekends count and
+// why the deadline moved. Only shows what the deadline logic returned.
+function DayStrip({ t, d, lang }) {
+  const start = new Date(`${d.served_on}T00:00:00Z`);
+  const end = new Date(`${d.deadline}T00:00:00Z`);
+  const days = [];
+  for (let x = start; x <= end; x = new Date(x.getTime() + 86400000)) days.push(x);
+  if (days.length > 15) return null;
+  const locale = LOCALE[lang] || "en-US";
+  const fmt = (x, o) => x.toLocaleDateString(locale, { ...o, timeZone: "UTC" });
+  const seventh = new Date(`${d.seventh_day}T00:00:00Z`);
+  const seventhClosed = closedLabel(d.seventh_day);
+  const closedName = seventhClosed && ["Saturday", "Sunday"].includes(seventhClosed) ? fmt(seventh, { weekday: "long" }) : seventhClosed;
+
+  return (
+    <figure className="mt-7">
+      <figcaption className="text-[15px] font-semibold">{t.stripLabel}</figcaption>
+      <ol className="-mx-5 mt-3 flex snap-x gap-1.5 overflow-x-auto px-5 pb-2" aria-label={t.stripLabel}>
+        {days.map((x, i) => {
+          const iso = x.toISOString().slice(0, 10);
+          const isDue = iso === d.deadline;
+          const isServed = i === 0;
+          const closed = !isServed && !isDue && iso >= d.seventh_day;
+          const label = isServed ? t.servedOn : isDue ? t.dueLabel : i <= 7 ? `${t.day} ${i}` : "";
+          const style = isDue
+            ? "bg-mark text-ink font-bold"
+            : isServed
+              ? "bg-ink text-white"
+              : closed
+                ? "border border-dashed border-ink-soft/60 text-ink-soft"
+                : "bg-page text-ink";
+          return (
+            <li key={iso} className={`relative flex w-[3.4rem] shrink-0 snap-start flex-col items-center rounded-lg py-2 text-center ${style}`}>
+              <span className="text-[11px]">{fmt(x, { weekday: "short" })}</span>
+              <span className={`text-lg leading-tight tabular-nums ${closed ? "line-through" : ""}`}>{fmt(x, { day: "numeric" })}</span>
+              <span className="mt-0.5 text-[10px] leading-tight">{label}</span>
+              {closed && <span className="sr-only">{t.closedDay}</span>}
+            </li>
+          );
+        })}
+      </ol>
+      <p className="mt-2 text-[15px] leading-relaxed text-ink-soft">
+        {d.moved && closedName ? t.movedBecause(closedName) : t.weekendsCount}
+      </p>
+    </figure>
+  );
+}
+
+function LagosVerdict({ t, check }) {
+  if (!check) return null;
+  return (
+    <section aria-labelledby="notice-heading" aria-live="polite">
+      <p className="text-[15px] font-semibold text-ink-soft">{t.yourNotice}</p>
+      <h1 id="notice-heading" className="mt-1 flex items-end gap-3">
+        <span className="highlight text-[clamp(5.5rem,27vw,7rem)] leading-[0.95] font-extrabold tracking-tighter tabular-nums">
+          {check.given_days}
+        </span>
+        <span className="pb-3 text-2xl font-bold">{t.days}</span>
+      </h1>
+      <p className="mt-5 flex items-start gap-2 text-xl leading-snug">
+        {check.ok === false && <span className="mt-1 text-caution"><Icon name="option" /></span>}
+        {check.ok === false ? t.lagosNoticeTitle(check.given_days, check.required_days) : t.lagosLooksOk}
+      </p>
+      {!check.verified && <p className="mt-3 text-[15px] text-ink-soft">{t.lagosProvisional}</p>}
+    </section>
+  );
+}
+
+// Fetches the plain-language script, shows it as captions, and plays it.
+function Listen({ t, fields, extras, lang }) {
+  const [state, setState] = useState("idle"); // idle | loading | playing
+  const [text, setText] = useState(null);
+  const [noAudio, setNoAudio] = useState(false);
+  const audio = useRef(null);
+
+  useEffect(() => () => audio.current?.pause(), []);
+
+  async function toggle() {
+    if (state === "playing") {
+      audio.current?.pause();
+      setState("idle");
+      return;
+    }
+    setState("loading");
+    setNoAudio(false);
+    try {
+      const ex = await explainNotice(fields, { ...extras, locked_out: Boolean(extras.locked_out) }, lang);
+      setText(ex.text);
+      const blob = await speak(ex.text, VOICE_FOR[lang]);
+      if (!blob) {
+        setNoAudio(true);
+        return setState("idle");
+      }
+      audio.current = new Audio(URL.createObjectURL(blob));
+      audio.current.onended = () => setState("idle");
+      await audio.current.play();
+      setState("playing");
+    } catch (e) {
+      console.warn(e);
+      setNoAudio(true);
+      setState("idle");
+    }
+  }
+
+  return (
+    <div className="mt-8">
+      <BigButton variant="secondary" onClick={toggle} disabled={state === "loading"} aria-pressed={state === "playing"}>
+        <Icon name={state === "playing" ? "pause" : "speaker"} />
+        {state === "loading" ? t.listening : state === "playing" ? t.stop : t.listen}
+      </BigButton>
+      <div aria-live="polite">
+        {noAudio && <p className="mt-3 text-[15px] text-ink-soft">{t.noAudio}</p>}
+        {text && (
+          <div className="mt-3 rounded-xl bg-page px-4 py-3">
+            <p className="text-sm font-semibold text-ink-soft">{t.captionsLabel}</p>
+            <p className="mt-1 text-[15px] leading-relaxed">{text}</p>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
