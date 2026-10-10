@@ -133,6 +133,19 @@ const en = {
   retry: "Try again",
   demoNote: "Demo mode: sample data",
   back: "Back",
+  nextStepsTitle: "What to do next",
+  nextStepsAtlanta: (due) => [
+    "Find the PDF in your phone's downloads (the Files app on iPhone).",
+    "Read it. Make sure it's true, and sign it if the court asks you to.",
+    `File it with the court named on your paper${due ? ` by ${due}` : " as soon as you can"}. You can file online, at the courthouse, or with help from legal aid.`,
+    "Keep a copy. The court will give you a hearing date. Go to it and bring your papers and receipts.",
+  ],
+  nextStepsLagos: [
+    "Find the PDF in your phone's downloads (the Files app on iPhone).",
+    "Read it and sign it.",
+    "Give it to your landlord or their agent. Keep a copy for yourself.",
+    "Keep every notice and rent receipt. If your landlord goes to court, go to the hearing and bring them.",
+  ],
 
   // Calendar, summary, legal words, Lagos force check
   addToCalendar: "Add to my calendar",
@@ -267,6 +280,13 @@ const es = {
   retry: "Intentar otra vez",
   demoNote: "Modo de prueba: datos de ejemplo",
   back: "Atrás",
+  nextStepsTitle: "Qué hacer ahora",
+  nextStepsAtlanta: (due) => [
+    "Busque el PDF en las descargas de su teléfono (la app Archivos en iPhone).",
+    "Léalo. Asegúrese de que sea verdad y fírmelo si la corte lo pide.",
+    `Preséntelo en la corte que aparece en su papel${due ? ` antes del ${due}` : " lo antes posible"}. Puede hacerlo en línea, en la corte o con ayuda legal.`,
+    "Guarde una copia. La corte le dará una fecha de audiencia. Vaya y lleve sus papeles y recibos.",
+  ],
 
   addToCalendar: "Agregar a mi calendario",
   calendarSaved: "Archivo de calendario guardado. Ábralo para agregar el recordatorio.",
@@ -371,6 +391,13 @@ const pcm = {
   error: "E no work. Check your network and try again.",
   retry: "Try again",
   back: "Go back",
+  nextStepsTitle: "Wetin you go do next",
+  nextStepsLagos: [
+    "Find the PDF for your phone downloads (Files app for iPhone).",
+    "Read am, then sign am.",
+    "Give am to your landlord or im agent. Keep one copy for yourself.",
+    "Keep every notice and rent receipt. If landlord carry the matter go court, go the hearing and carry dem.",
+  ],
 
   summaryButton: "Download summary for legal aid",
   summaryHint: "One page wey get your dates and wetin happen. Show am to lawyer or legal aid make dem help you quick.",
