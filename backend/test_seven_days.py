@@ -4,7 +4,7 @@ os.environ["DEMO_MODE"] = "1"
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from main import app  # noqa: E402  (repo main: Witness + 7 Days)
+from main import app  # noqa: E402
 
 client = TestClient(app)
 

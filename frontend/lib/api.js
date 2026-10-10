@@ -27,6 +27,24 @@ async function getJSON(path) {
   return res.json();
 }
 
+// Phone photos are 3–5 MB. Shrink to 1600px on the long side (still sharp
+// enough to read a court form) so upload and reading are much faster.
+async function shrinkPhoto(file, maxSide = 1600) {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+    if (scale === 1 && file.size < 1_500_000) return file;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.85));
+    return blob ? new File([blob], "notice.jpg", { type: "image/jpeg" }) : file;
+  } catch {
+    return file; // unsupported format (e.g. some HEIC): send the original
+  }
+}
+
 // ---------- POST /read-notice ----------
 export async function readNotice(file, jurisdiction) {
   if (DEMO) {
@@ -34,7 +52,7 @@ export async function readNotice(file, jurisdiction) {
     return { fields: { ...SAMPLE_FIELDS[jurisdiction] }, unclear: [], source: "demo" };
   }
   const form = new FormData();
-  form.append("photo", file);
+  form.append("photo", await shrinkPhoto(file));
   const res = await fetch(`${API_URL}/read-notice`, { method: "POST", body: form });
   if (!res.ok) throw new Error(`/read-notice failed (${res.status})`);
   return res.json();

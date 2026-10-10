@@ -68,26 +68,66 @@ def _empty():
     return out
 
 
-def _call_gemini(image_bytes: bytes, mime_type: str) -> dict:
+# Models tried in order. If the first is overloaded (503) or slow, the next one
+# gets the rest of the time. Override with GEMINI_MODELS="a,b".
+# Live test (Oct 10): 3.5 Flash-Lite read the sample correctly in ~1.4s;
+# 3.8 Flash timed out at 18s twice, so Flash-Lite goes first.
+MODELS = [m.strip() for m in os.environ.get(
+    "GEMINI_MODELS", "gemini-3.5-flash-lite,gemini-3.8-flash"
+).split(",") if m.strip()]
+FIRST_TRY_S = 12.0  # how long the first model gets before we move on
+
+
+def _call_gemini(image_bytes: bytes, mime_type: str, model: str | None = None) -> dict:
     from google import genai
     from google.genai import types
 
+    model = model or MODELS[0]
+    cfg = {"response_mime_type": "application/json", "temperature": 0}
+    if model.startswith("gemini-3.8"):
+        # Reading dates off a form doesn't need deep reasoning; "low" is much
+        # faster than the default ("medium"). 3.8 Flash allows low/medium/high.
+        cfg["thinking_config"] = types.ThinkingConfig(thinking_level=os.environ.get("GEMINI_THINKING", "low"))
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     resp = client.models.generate_content(
-        model=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
-        contents=[
-            types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
-            PROMPT.format(keys=", ".join(FIELDS)),
-        ],
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json", temperature=0
-        ),
+        model=model,
+        contents=[types.Part.from_bytes(data=image_bytes, mime_type=mime_type), PROMPT.format(keys=", ".join(FIELDS))],
+        config=types.GenerateContentConfig(**cfg),
     )
     return json.loads(resp.text)
 
 
+def _with_timeout(fn, timeout_s, *args):
+    """Run fn in a thread and stop WAITING after timeout_s (the thread is left
+    to finish on its own; we never block on it)."""
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        return ex.submit(fn, *args).result(timeout=timeout_s)
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
+
+
+def gemini_read(image_bytes: bytes, mime_type: str, budget_s: float = 30.0):
+    """Try each model in turn within the total budget.
+    Returns (raw_dict or None, model_used or None, [errors])."""
+    import time
+
+    errors, deadline = [], time.monotonic() + budget_s
+    for i, model in enumerate(MODELS):
+        left = deadline - time.monotonic()
+        if left < 3:
+            break
+        limit = min(left, FIRST_TRY_S) if i < len(MODELS) - 1 else left
+        try:
+            return _with_timeout(_call_gemini, limit, image_bytes, mime_type, model), model, errors
+        except Exception as e:  # noqa: BLE001
+            name = "Timeout" if isinstance(e, concurrent.futures.TimeoutError) else type(e).__name__
+            errors.append(f"{model}: {name} {str(e)[:120]}")
+    return None, None, errors
+
+
 def read_notice(image_bytes: bytes, mime_type: str = "image/jpeg",
-                timeout_s: float = 15.0) -> dict:
+                timeout_s: float = 30.0) -> dict:
     """Returns {"fields": {...}, "unclear": [...], "source": "...", "note": ...}."""
     if os.environ.get("DEMO_MODE") == "1":
         return {"fields": dict(SAMPLE_FIELDS), "unclear": [],
@@ -97,10 +137,8 @@ def read_notice(image_bytes: bytes, mime_type: str = "image/jpeg",
         return {"fields": _empty(), "unclear": list(FIELDS), "source": "manual",
                 "note": "Could not read the photo. Please type the details."}
 
-    try:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-            raw = ex.submit(_call_gemini, image_bytes, mime_type).result(timeout=timeout_s)
-    except Exception:
+    raw, _model, _errors = gemini_read(image_bytes, mime_type, timeout_s)
+    if raw is None:
         return {"fields": _empty(), "unclear": list(FIELDS), "source": "manual",
                 "note": "Could not read the photo. Please type the details."}
 

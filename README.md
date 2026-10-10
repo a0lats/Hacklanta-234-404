@@ -21,7 +21,7 @@ export GEMINI_API_KEY=...        # reads the photo
 uvicorn main:app --reload --port 8000
 pytest -q                        # all backend tests
 ```
-`/speak` (ElevenLabs) is unchanged and now also accepts `lang: "spanish"` (set `VOICE_ID_SPANISH`, or it falls back to the English voice). The old Witness endpoints are still in `main.py`; remove them once nobody needs them.
+`/speak` (ElevenLabs) is unchanged and now also accepts `lang: "spanish"` (set `VOICE_ID_SPANISH`, or it falls back to the English voice).
 
 ## Known gaps
 - Cards and answer options are translated on screen (`lib/strings.js` → `cards`, `defenses`), but the downloaded answer PDF is in English on purpose, because it is filed with the court. The screen says so in Spanish mode.

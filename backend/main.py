@@ -1,22 +1,29 @@
+"""7 Days API. Stateless: no database, no accounts, no logging of user content."""
+
+import json as _json
 import os
-from typing import Optional
+from datetime import date as _date
+from pathlib import Path as _Path
+from typing import Literal, Optional
 
 from dotenv import load_dotenv
-from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
+from pydantic import BaseModel, Field
 
 load_dotenv()
 
-from compare import compare as compare_evidence  # noqa: E402
-from letter import write_letter  # noqa: E402
-from official_data import find_official_record  # noqa: E402
-from receipt import KEY_ID, PUBLIC_KEY_B64, issue_receipt, verify_receipt  # noqa: E402
+from answer_pdf import ATLANTA_DEFENSES, atlanta_answer, lagos_letter  # noqa: E402
+from checks import run_checks  # noqa: E402
+from explain import explain as explain_notice  # noqa: E402
+from notice_reader import read_notice  # noqa: E402
 from speak import text_to_speech  # noqa: E402
 
-app = FastAPI(title="Witness API")
+app = FastAPI(title="7 Days API")
 
-# Set ALLOWED_ORIGINS on Render to Mo's Vercel URL once it exists.
+# Set ALLOWED_ORIGINS on Render to the Vercel URL.
 origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",")]
 app.add_middleware(
     CORSMiddleware,
@@ -26,82 +33,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Zero Data: no database, no accounts, no logging of user content.
-
 
 @app.get("/health")
 async def health():
     return {"status": "ok"}
 
 
-# ---------- Travis: photo check ----------
-@app.post("/check-photo")
-async def check_photo(
-    photo: UploadFile = File(...),
-    expected_shot: str = Form(...),  # leak_point | pipe_condition | wide
-):
-    # STUB. Travis wires Gemini in ai.py later.
-    return {
-        "shot_type": expected_shot,
-        "usable": True,
-        "reason": "Leak point clearly visible",
-        "damage_seen": "Rust and a split along the pipe seam; oil pooling below",
-        "boxes": [{"label": "corrosion", "box": [320, 410, 560, 690]}],
-        "needs_expert_review": True,
-    }
-
-
-# ---------- Official record (real NOSDRA data) ----------
-@app.get("/official-record")
-async def official_record(spill_id: Optional[str] = None, lat: Optional[float] = None,
-                          lon: Optional[float] = None, date: Optional[str] = None):
-    record = find_official_record(spill_id=spill_id, lat=lat, lon=lon, date=date)
-    if not record:
-        raise HTTPException(status_code=404, detail="No matching official record found")
-    return {k: v for k, v in record.items() if k != "raw"} | {"all_fields": record.get("raw", {})}
-
-
-@app.post("/read-report")
-async def read_report(photo: UploadFile = File(...)):
-    # Kept for compatibility. The demo uses /official-record (real NOSDRA data) instead.
-    return {
-        "date": "2026-03-12",
-        "location": "Kpean, Khana LGA, Rivers State",
-        "cause": "Sabotage",
-        "volume_barrels": 20,
-        "area": "0.2 hectares",
-        "signed_by": ["Operator", "NOSDRA"],
-        "lines": {"cause": "Cause of spill: third-party interference (sabotage)"},
-    }
-
-
-def _official_from(payload: dict) -> dict:
-    """Accept {"official": ...} (from /official-record) or {"report": ...} (team contract)."""
-    official = payload.get("official") or payload.get("report") or {}
-    if "volume_bbl" not in official and "volume_barrels" in official:
-        official = {**official, "volume_bbl": official["volume_barrels"]}
-    return official
-
-
-# ---------- Jade: compare + letter ----------
-@app.post("/compare")
-async def compare(payload: dict = Body(...)):
-    official = _official_from(payload)
-    if not official:
-        raise HTTPException(status_code=400, detail="Send the official record as 'official' or 'report'")
-    return {"mismatches": compare_evidence(official, payload.get("photos", []))}
-
-
-@app.post("/letter")
-async def letter(payload: dict = Body(...)):
-    return write_letter(_official_from(payload), payload.get("mismatches", []), payload.get("photos", []))
-
-
-# ---------- Voice (ElevenLabs) ----------
+# ---------- Voice (ElevenLabs): text in, MP3 out. Nothing saved. ----------
 @app.post("/speak")
 async def speak(payload: dict = Body(...)):
     try:
-        audio = text_to_speech(payload.get("text", ""), payload.get("lang", "english"))
+        audio = await run_in_threadpool(text_to_speech, payload.get("text", ""), payload.get("lang", "english"))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception:
@@ -109,40 +51,7 @@ async def speak(payload: dict = Body(...)):
     return Response(content=audio, media_type="audio/mpeg")
 
 
-# ---------- Signed evidence receipts (nothing stored) ----------
-@app.post("/receipt")
-async def receipt(payload: dict = Body(...)):
-    try:
-        return issue_receipt(payload.get("hash", ""), payload.get("taken_at"))
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.post("/verify-receipt")
-async def verify(payload: dict = Body(...)):
-    return verify_receipt(payload.get("receipt", {}), payload.get("signature", ""), payload.get("hash"))
-
-
-@app.get("/public-key")
-async def public_key():
-    return {"algorithm": "Ed25519", "key_id": KEY_ID, "public_key": PUBLIC_KEY_B64}
-
-
-# =====================================================================
-# 7 Days: eviction papers. Stateless; see CONTRACT.md at the repo root.
-# =====================================================================
-import json as _json  # noqa: E402
-from datetime import date as _date  # noqa: E402
-from pathlib import Path as _Path  # noqa: E402
-from typing import Literal  # noqa: E402
-
-from pydantic import BaseModel, Field  # noqa: E402
-
-from answer_pdf import ATLANTA_DEFENSES, atlanta_answer, lagos_letter  # noqa: E402
-from checks import run_checks  # noqa: E402
-from explain import explain as explain_notice  # noqa: E402
-from notice_reader import read_notice  # noqa: E402
-
+# ---------- 7 Days endpoints. Shapes: CONTRACT.md at the repo root. ----------
 LEGAL_AID = _json.loads((_Path(__file__).parent / "data" / "legal_aid.json").read_text())
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
@@ -202,7 +111,7 @@ async def read_notice_ep(photo: UploadFile = File(...)):
     data = await photo.read()
     if len(data) > MAX_IMAGE_BYTES:
         raise HTTPException(status_code=413, detail="Photo too large (max 8 MB).")
-    result = read_notice(data, photo.content_type or "image/jpeg")
+    result = await run_in_threadpool(read_notice, data, photo.content_type or "image/jpeg")
     del data  # read once, never stored
     return result
 
@@ -246,3 +155,74 @@ async def answer_ep(req: AnswerRequest):
 @app.get("/legal-aid")
 async def legal_aid(jurisdiction: Literal["atlanta", "lagos"] = "atlanta"):
     return {"places": LEGAL_AID.get(jurisdiction, []), "note": LEGAL_AID["_note"]}
+
+
+# ---------- Self-test: is the live server's Gemini + voice setup working? ----------
+# GET /selftest reads the printed SAMPLE notice with Gemini and makes one short
+# voice clip. Returns only ok/fail and a short reason, never keys. Cached for 60
+# seconds so repeated checks don't spend credits.
+import time as _time  # noqa: E402
+
+_SELFTEST = {"at": 0.0, "result": None}
+
+
+def _clean(err: Exception) -> str:
+    status = getattr(err, "status_code", None)
+    body = getattr(err, "body", None)
+    if status is not None:  # ElevenLabs ApiError: show the status and its reason, not headers
+        msg = f"{type(err).__name__} {status}: {body}"[:300]
+    else:
+        msg = f"{type(err).__name__}: {err}"[:300]
+    for k in ("GEMINI_API_KEY", "ELEVENLABS_API_KEY"):
+        v = os.getenv(k)
+        if v:
+            msg = msg.replace(v, "***")
+    return msg
+
+
+def _run_selftest():
+    from notice_reader import gemini_read
+
+    out = {"gemini": {"configured": bool(os.getenv("GEMINI_API_KEY"))},
+           "voice": {"configured": bool(os.getenv("ELEVENLABS_API_KEY")),
+                     "english_voice_set": bool(os.getenv("VOICE_ID_ENGLISH")),
+                     "spanish_voice_set": bool(os.getenv("VOICE_ID_SPANISH")),
+                     "pidgin_voice_set": bool(os.getenv("VOICE_ID_PIDGIN"))}}
+    try:
+        if out["gemini"]["configured"]:
+            img = (_Path(__file__).parent / "data" / "sample_notice_atlanta.png").read_bytes()
+            t0 = _time.time()
+            raw, model, errors = gemini_read(img, "image/png", 30.0)
+            out["gemini"].update(
+                ok=bool(raw) and raw.get("served_on") == "2026-10-10",
+                model=model,
+                served_on=(raw or {}).get("served_on"),
+                case_number=(raw or {}).get("case_number"),
+                seconds=round(_time.time() - t0, 1),
+                errors=[_clean(Exception(e)) for e in errors],
+            )
+
+        if out["voice"]["configured"] and out["voice"]["english_voice_set"]:
+            try:
+                t0 = _time.time()
+                audio = text_to_speech("Test.", "english")
+                out["voice"].update(ok=len(audio) > 1000, bytes=len(audio), seconds=round(_time.time() - t0, 1))
+            except Exception as e:  # noqa: BLE001
+                out["voice"].update(ok=False, error=_clean(e))
+    finally:
+        out["finished_at"] = _time.strftime("%H:%M:%S UTC", _time.gmtime())
+        _SELFTEST.update(at=_time.time(), result=out, running=False)
+
+
+@app.get("/selftest")
+async def selftest():
+    """Starts a check in the background; reload after ~30s to see the result."""
+    import threading
+
+    fresh = _SELFTEST["result"] and _time.time() - _SELFTEST["at"] < 60
+    if not fresh and not _SELFTEST.get("running"):
+        _SELFTEST["running"] = True
+        threading.Thread(target=_run_selftest, daemon=True).start()
+    return {"running": bool(_SELFTEST.get("running")),
+            "note": "Reload in about 30 seconds for a new result." if _SELFTEST.get("running") else "Result is fresh (under 60s old).",
+            "last_result": _SELFTEST["result"]}
