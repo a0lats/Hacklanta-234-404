@@ -8,9 +8,14 @@ export function Shell({ t, lang, setLang, place, step, footer, demo, children })
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col">
       <header className="flex items-center justify-between gap-3 px-5 pt-5 pb-4">
-        <span className="text-xl font-extrabold tracking-tight text-ink">{t.appName}</span>
-        <div className="flex items-center gap-2.5">
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-ink-soft">
+        <span className="flex items-center gap-2 text-xl font-extrabold tracking-tight text-ink">
+          <span aria-hidden="true" className="flex h-8 w-8 items-center justify-center rounded-lg bg-mark text-ink">
+            <Icon name="calendar" className="h-[1.1rem] w-[1.1rem]" />
+          </span>
+          {t.appName}
+        </span>
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1 rounded-full bg-help-soft px-2.5 py-1 text-xs font-semibold text-help">
             <Icon name="lock" className="h-3.5 w-3.5" /> {t.neverSaved}
           </span>
           <LangToggle options={LANGS[place]} lang={lang} setLang={setLang} />
@@ -19,9 +24,12 @@ export function Shell({ t, lang, setLang, place, step, footer, demo, children })
       {step > 0 && <Progress t={t} step={step} />}
       <main className="flex min-w-0 flex-1 flex-col rounded-t-3xl border-t border-line bg-paper px-5 pt-6 pb-8">
         {demo && (
-          <p className="mb-5 self-start rounded-md border border-line px-2 py-1 text-xs text-ink-soft">{t.demoNote}</p>
+          <p className="mb-5 inline-flex items-center gap-1.5 self-start rounded-full bg-caution-soft px-2.5 py-1 text-xs font-semibold text-caution">
+            <span aria-hidden="true" className="pulse-dot h-1.5 w-1.5 rounded-full bg-caution" /> {t.demoNote}
+          </p>
         )}
-        <div className="min-w-0 flex-1">{children}</div>
+        {/* key={step} replays the entrance animation every time the screen changes */}
+        <div key={step} className="screen-in min-w-0 flex-1">{children}</div>
         <p className="mt-12 text-xs leading-relaxed text-ink-soft">{t.notAdvice}</p>
       </main>
       {footer && (
@@ -43,6 +51,11 @@ export function Icon({ name, className = "h-5 w-5" }) {
     speaker: <><path d="M4 9v6h4l5 4V5L8 9H4z" /><path d="M16.5 8.5a5 5 0 0 1 0 7" /></>,
     pause: <><path d="M8 5v14" /><path d="M16 5v14" /></>,
     arrow: <path d="M5 12h14M13 6l6 6-6 6" />,
+    camera: <><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></>,
+    file: <><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4" /><path d="M9 13h6M9 17h4" /></>,
+    pin: <><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z" /><circle cx="12" cy="9.5" r="2.5" /></>,
+    calendar: <><rect x="4" y="5" width="16" height="16" rx="2" /><path d="M8 3v4M16 3v4M4 10h16" /></>,
+    download: <><path d="M12 4v11M7 10l5 5 5-5" /><path d="M5 20h14" /></>,
   };
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -69,26 +82,30 @@ function LangToggle({ options, lang, setLang }) {
   );
 }
 
-// 4 steps. The current step is named in words; finished steps get a tick, so
+// 4 steps, each named. Done steps get a tick and the current one is bold, so
 // the state never depends on color alone. Steps are not clickable on purpose.
 function Progress({ t, step }) {
   const labels = t.steps;
   return (
     <nav aria-label={t.stepOf(step, labels.length)} className="px-5 pb-4">
-      <p className="text-sm text-ink-soft">
-        {t.stepOf(step, labels.length)}: <span className="font-semibold text-ink">{labels[step - 1]}</span>
+      <p className="sr-only">
+        {t.stepOf(step, labels.length)}: {labels[step - 1]}
       </p>
-      <ol className="mt-2 flex gap-1.5">
+      <ol className="flex gap-1.5">
         {labels.map((label, i) => {
           const state = i < step - 1 ? "done" : i === step - 1 ? "current" : "next";
           return (
-            <li key={label} className="flex flex-1 items-center gap-1" aria-current={state === "current" ? "step" : undefined}>
-              <span className={`h-1.5 flex-1 rounded-full ${state === "next" ? "bg-line" : "bg-ink"}`} />
-              {state === "done" && (
-                <span className="sr-only">
-                  {label}: {t.done}
-                </span>
-              )}
+            <li key={label} className="flex min-w-0 flex-1 flex-col gap-1.5" aria-current={state === "current" ? "step" : undefined}>
+              <span className={`h-1.5 rounded-full transition-colors duration-500 ${state === "next" ? "bg-line" : "bg-ink"}`} />
+              <span
+                className={`flex items-center gap-1 truncate text-xs ${
+                  state === "current" ? "font-bold text-ink" : state === "done" ? "font-medium text-ink" : "text-ink-soft"
+                }`}
+              >
+                {state === "done" && <Icon name="check" className="pop h-3 w-3 shrink-0 text-help" />}
+                {label}
+                {state === "done" && <span className="sr-only">: {t.done}</span>}
+              </span>
             </li>
           );
         })}
@@ -98,20 +115,29 @@ function Progress({ t, step }) {
 }
 
 // The big bottom button. as="label" wraps a hidden camera input.
-export function BigButton({ children, onClick, disabled, variant = "primary", as = "button", ...rest }) {
+// icon: a leading icon name. arrow: a trailing arrow that nudges on hover,
+// used on buttons that move you to the next step.
+export function BigButton({ children, onClick, disabled, variant = "primary", as = "button", icon, arrow, ...rest }) {
   const styles = {
-    primary: "bg-ink text-white hover:bg-ink/90 active:bg-ink/80",
-    secondary: "border-2 border-ink text-ink bg-paper hover:bg-page active:bg-line",
-    help: "bg-help text-white hover:bg-help/90 active:bg-help/80",
+    primary: "bg-ink text-white hover:bg-ink-hover",
+    secondary: "border-2 border-ink text-ink bg-paper hover:bg-mark-soft",
+    help: "bg-help text-white hover:bg-help/90",
     quiet: "text-ink underline underline-offset-4 hover:bg-page",
   };
-  const className = `flex min-h-14 w-full cursor-pointer items-center justify-center gap-2 rounded-2xl px-4 text-lg font-semibold transition-colors ${
+  const className = `press flex min-h-14 w-full cursor-pointer items-center justify-center gap-2.5 rounded-2xl px-4 text-lg font-semibold ${
     styles[variant]
-  } ${disabled ? "cursor-not-allowed opacity-40" : ""}`;
-  if (as === "label") return <label className={className} {...rest}>{children}</label>;
+  } ${disabled ? "pointer-events-none cursor-not-allowed opacity-40" : ""}`;
+  const inner = (
+    <>
+      {icon && <Icon name={icon} className="h-5 w-5 shrink-0" />}
+      {children}
+      {arrow && <Icon name="arrow" className="nudge h-5 w-5 shrink-0" />}
+    </>
+  );
+  if (as === "label") return <label className={className} {...rest}>{inner}</label>;
   return (
     <button type="button" onClick={onClick} disabled={disabled} aria-disabled={disabled || undefined} className={className} {...rest}>
-      {children}
+      {inner}
     </button>
   );
 }
@@ -131,14 +157,14 @@ export function Loading({ message, sub }) {
 
 // A "thing to check". Urgent = red + warning icon, option = amber + circle icon,
 // info = grey + info icon. The icon and wording carry the meaning, not just color.
-export function CheckCard({ title, body, level }) {
+export function CheckCard({ title, body, level, index = 0 }) {
   const look = {
     red: { box: "border-urgent bg-urgent-soft", head: "text-urgent", icon: "alert" },
     amber: { box: "border-caution bg-caution-soft", head: "text-caution", icon: "option" },
     info: { box: "border-line bg-page", head: "text-ink", icon: "info" },
   }[level] ?? { box: "border-line bg-page", head: "text-ink", icon: "info" };
   return (
-    <li className={`flex gap-3 rounded-r-xl border-l-4 px-4 py-3.5 ${look.box}`}>
+    <li className={`stagger flex gap-3 rounded-r-xl border-l-4 px-4 py-3.5 ${look.box}`} style={{ "--i": index }}>
       <span className={`mt-0.5 shrink-0 ${look.head}`}>
         <Icon name={look.icon} />
       </span>
@@ -177,7 +203,7 @@ export function Field({ id, label, hint, optional, flagged, flagText, error, chi
 }
 
 export const inputClass =
-  "block min-h-12 w-full rounded-xl border-2 border-line bg-paper px-3.5 py-2.5 text-base text-ink placeholder:text-ink-soft/70 focus:border-ink focus:outline-none";
+  "block min-h-12 w-full rounded-xl border-2 border-line bg-paper px-3.5 py-2.5 text-base text-ink placeholder:text-ink-soft/80 transition-colors hover:border-ink-soft focus:border-ink focus:outline-none";
 
 // Errors keep the person's work and offer a retry.
 export function ErrorNote({ message, onRetry, retryLabel }) {

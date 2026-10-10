@@ -5,7 +5,9 @@
    Each --color-* below becomes Tailwind classes, e.g. bg-ink, text-urgent. */
 @theme {
   --color-ink: #15233f;        /* legal-ink navy: text, primary buttons */
-  --color-ink-soft: #5b6a85;   /* secondary text */
+  --color-ink-soft: #4b5a76;   /* secondary text: 6:1+ on white, 5.5:1 on page */
+  --color-ink-hover: #22345a;  /* primary button hover */
+  --color-mark-soft: #fff6c2;  /* pale highlighter: selected, notes */
   --color-page: #edf1f6;       /* cool folder grey behind the paper */
   --color-paper: #ffffff;
   --color-line: #d5dce6;       /* borders, input outlines */
@@ -48,9 +50,64 @@ body {
   to { transform: translateX(210%); }
 }
 
+/* Each new screen rises in gently, so the step change is felt, not jarring. */
+.screen-in {
+  animation: rise 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* Lists (things to check, answer options) arrive one item after another.
+   Set --i on each item: style={{ "--i": index }}. */
+.stagger {
+  animation: rise 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation-delay: calc(120ms + var(--i, 0) * 70ms);
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* A tick that pops in when something is chosen or done. */
+.pop {
+  animation: pop 260ms cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+
+@keyframes pop {
+  from { transform: scale(0.4); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* Every tappable thing sinks slightly under the finger: instant feedback. */
+.press {
+  transition: transform 120ms ease, background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+.press:active {
+  transform: scale(0.98);
+}
+
+/* The arrow on primary buttons nudges right on hover: "this moves you forward". */
+.nudge {
+  transition: transform 180ms ease;
+}
+.press:hover .nudge {
+  transform: translateX(3px);
+}
+
+/* The demo badge dot breathes so a judge notices it's sample data. */
+.pulse-dot {
+  animation: breathe 2s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  50% { opacity: 0.35; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .highlight { animation: none; }
   .loading-bar { animation: none; width: 100%; opacity: 0.5; }
+  .screen-in, .stagger, .pop, .pulse-dot { animation: none; }
+  .press, .nudge { transition: none; }
+  .press:active { transform: none; }
 }
 
 :focus-visible {
