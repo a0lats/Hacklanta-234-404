@@ -1,7 +1,7 @@
 "use client"; // runs on the phone: camera, audio and downloads
 
 import { useEffect, useRef, useState } from "react";
-import { STRINGS, VOICE_FOR, LOCALE } from "@/lib/strings";
+import { STRINGS, LOCALE, voiceFor } from "@/lib/strings";
 import { SAMPLE_FIELDS } from "@/lib/fake";
 import { DEMO, readNotice, checkNotice, explainNotice, speak, getDefenses, makeAnswer, makeSummary, getLegalAid, closedLabel } from "@/lib/api";
 import { deadlineIcs, saveBlob } from "@/lib/calendar";
@@ -46,8 +46,17 @@ export default function SevenDays() {
   }, [lang]);
 
   function choosePlace(p) {
+    if (p === place) return;
+    clearCase(); // switching city starts a fresh case
     setPlace(p);
     setLang("en");
+  }
+
+  // Back one screen. Everything typed so far stays.
+  function goBack() {
+    setError(null);
+    setStep((s) => Math.max(0, s - 1));
+    window.scrollTo(0, 0);
   }
 
   // Runs a backend call with a waiting screen. On failure, the person's work
@@ -164,7 +173,11 @@ export default function SevenDays() {
   }
 
   function startOver() {
+    clearCase();
     setStep(0);
+  }
+
+  function clearCase() {
     setPhotoUrl(null);
     setFields(null);
     setResult(null);
@@ -179,7 +192,7 @@ export default function SevenDays() {
     setSummarySaved(false);
   }
 
-  const shell = { t, lang, setLang, place, step, demo: DEMO };
+  const shell = { t, lang, setLang, place, step, demo: DEMO, onBack: goBack };
   const errorNote = <ErrorNote message={error} onRetry={retry} retryLabel={t.retry} />;
   const deadline = result?.deadline;
 
@@ -757,7 +770,7 @@ function Listen({ t, fields, extras, lang }) {
     try {
       const ex = await explainNotice(fields, { ...extras, locked_out: Boolean(extras.locked_out) }, lang);
       setText(ex.text);
-      const blob = await speak(ex.text, VOICE_FOR[lang]);
+      const blob = await speak(ex.text, voiceFor(fields.jurisdiction, lang));
       if (!blob) {
         setNoAudio(true);
         return setState("idle");
@@ -872,7 +885,7 @@ function LegalWords({ t, place, lang }) {
     setNoAudio(false);
     try {
       if (!cache.current[w.id]) {
-        const blob = await speak(`${w.word}. ${w.meaning}`, VOICE_FOR[lang]);
+        const blob = await speak(`${w.word}. ${w.meaning}`, voiceFor(place, lang));
         if (!blob) {
           setNoAudio(true);
           return setState("idle");
