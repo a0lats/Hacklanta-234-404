@@ -70,10 +70,12 @@ def _empty():
 
 # Models tried in order. If the first is overloaded (503) or slow, the next one
 # gets the rest of the time. Override with GEMINI_MODELS="a,b".
+# Live test (Oct 10): 3.5 Flash-Lite read the sample correctly in ~1.4s;
+# 3.8 Flash timed out at 18s twice, so Flash-Lite goes first.
 MODELS = [m.strip() for m in os.environ.get(
-    "GEMINI_MODELS", os.environ.get("GEMINI_MODEL", "gemini-3.8-flash") + ",gemini-3.5-flash-lite"
+    "GEMINI_MODELS", "gemini-3.5-flash-lite,gemini-3.8-flash"
 ).split(",") if m.strip()]
-FIRST_TRY_S = 18.0  # how long the first model gets before we move on
+FIRST_TRY_S = 12.0  # how long the first model gets before we move on
 
 
 def _call_gemini(image_bytes: bytes, mime_type: str, model: str | None = None) -> dict:
