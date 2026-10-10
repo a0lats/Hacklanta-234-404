@@ -4,7 +4,7 @@ import { LANGS } from "@/lib/strings";
 
 // The frame: header (name, privacy note, language), progress, content on a
 // white "paper" sheet, the disclaimer, and a sticky bottom area for actions.
-export function Shell({ t, lang, setLang, place, step, footer, demo, children }) {
+export function Shell({ t, lang, setLang, place, step, footer, demo, onBack, children }) {
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col">
       <header className="flex items-center justify-between gap-3 px-5 pt-5 pb-4">
@@ -21,6 +21,17 @@ export function Shell({ t, lang, setLang, place, step, footer, demo, children })
           <LangToggle options={LANGS[place]} lang={lang} setLang={setLang} />
         </div>
       </header>
+      {step > 0 && onBack && (
+        <div className="-mt-1 px-3 pb-2">
+          <button
+            type="button"
+            onClick={onBack}
+            className="press inline-flex min-h-11 items-center gap-1.5 rounded-xl px-2 text-[15px] font-semibold text-ink hover:bg-paper"
+          >
+            <Icon name="arrow" className="h-5 w-5 rotate-180" /> {t.back}
+          </button>
+        </div>
+      )}
       {step > 0 && <Progress t={t} step={step} />}
       <main className="flex min-w-0 flex-1 flex-col rounded-t-3xl border-t border-line bg-paper px-5 pt-6 pb-8">
         {demo && (

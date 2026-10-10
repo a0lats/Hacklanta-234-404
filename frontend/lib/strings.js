@@ -132,6 +132,7 @@ const en = {
   error: "That didn't work. Check your connection and try again.",
   retry: "Try again",
   demoNote: "Demo mode: sample data",
+  back: "Back",
 
   // Calendar, summary, legal words, Lagos force check
   addToCalendar: "Add to my calendar",
@@ -265,6 +266,7 @@ const es = {
   error: "No funcionó. Revise su conexión e intente otra vez.",
   retry: "Intentar otra vez",
   demoNote: "Modo de prueba: datos de ejemplo",
+  back: "Atrás",
 
   addToCalendar: "Agregar a mi calendario",
   calendarSaved: "Archivo de calendario guardado. Ábralo para agregar el recordatorio.",
@@ -368,6 +370,7 @@ const pcm = {
   startOverNote: "If you start again, e go clear your paper and answers from dis page.",
   error: "E no work. Check your network and try again.",
   retry: "Try again",
+  back: "Go back",
 
   summaryButton: "Download summary for legal aid",
   summaryHint: "One page wey get your dates and wetin happen. Show am to lawyer or legal aid make dem help you quick.",
@@ -416,4 +419,7 @@ export const LANGS = {
   lagos: [["en", "EN"], ["pcm", "Pidgin"]],
 };
 export const VOICE_FOR = { en: "english", es: "spanish", pcm: "pidgin" };
+// Lagos always uses the Nigerian voice (VOICE_ID_PIDGIN on the server), in
+// English and in Pidgin, so it sounds different from the Atlanta voice.
+export const voiceFor = (place, lang) => (place === "lagos" ? "pidgin" : VOICE_FOR[lang]);
 export const LOCALE = { en: "en-US", es: "es-US", pcm: "en-NG" };
