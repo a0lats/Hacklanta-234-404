@@ -168,31 +168,42 @@ export default function SevenDays() {
         {...shell}
         footer={
           <div className="space-y-3">
-            <BigButton as="label">
+            <BigButton as="label" icon="camera">
               <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={onPhoto} />
               {t.takePhoto}
             </BigButton>
-            <BigButton variant="secondary" onClick={useSample}>{t.useSample}</BigButton>
+            <BigButton variant="secondary" icon="file" onClick={useSample}>{t.useSample}</BigButton>
           </div>
         }
       >
         <fieldset>
           <legend className="text-[15px] font-semibold text-ink">{t.whereIsHome}</legend>
           <div className="mt-2.5 grid grid-cols-2 gap-2">
-            {[["atlanta", t.atlanta], ["lagos", t.lagos]].map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => choosePlace(value)}
-                aria-pressed={place === value}
-                className={`flex min-h-14 items-center justify-center gap-2 rounded-xl border-2 px-3 text-base font-semibold ${
-                  place === value ? "border-ink bg-ink text-white" : "border-line text-ink hover:border-ink"
-                }`}
-              >
-                {place === value && <Icon name="check" className="h-4 w-4" />}
-                {label}
-              </button>
-            ))}
+            {[["atlanta", t.atlanta, t.atlantaSub], ["lagos", t.lagos, t.lagosSub]].map(([value, label, sub]) => {
+              const on = place === value;
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => choosePlace(value)}
+                  aria-pressed={on}
+                  className={`press relative flex min-h-[4.5rem] flex-col items-start justify-center rounded-xl border-2 px-3.5 py-2.5 text-left ${
+                    on ? "border-ink bg-ink text-white" : "border-line text-ink hover:border-ink hover:bg-page"
+                  }`}
+                >
+                  <span className="flex items-center gap-1.5 text-base font-bold">
+                    <Icon name="pin" className="h-4 w-4 shrink-0" />
+                    {label}
+                  </span>
+                  <span className={`mt-0.5 text-sm ${on ? "text-white/85" : "text-ink-soft"}`}>{sub}</span>
+                  {on && (
+                    <span className="pop absolute top-2 right-2 flex h-5 w-5 items-center justify-center rounded-full bg-mark text-ink">
+                      <Icon name="check" className="h-3.5 w-3.5" />
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         </fieldset>
 
@@ -200,7 +211,25 @@ export default function SevenDays() {
           {isLagos ? t.homeTitleLagos : t.homeTitle}
         </h1>
         <p className="mt-4 text-lg leading-relaxed text-ink">{isLagos ? t.homeBodyLagos : t.homeBody}</p>
-        <p className="mt-6 flex items-start gap-2 text-[15px] leading-relaxed text-ink-soft">
+        <section className="mt-8" aria-labelledby="how-heading">
+          <h2 id="how-heading" className="text-sm font-bold tracking-wide text-ink-soft uppercase">{t.howItWorks}</h2>
+          <ol className="mt-3 space-y-2.5">
+            {(isLagos ? t.howStepsLagos : t.howSteps).map((line, i) => (
+              <li key={line} className="stagger flex items-center gap-3" style={{ "--i": i }}>
+                <span
+                  aria-hidden="true"
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold tabular-nums ${
+                    i === 1 ? "bg-mark text-ink" : "bg-page text-ink"
+                  }`}
+                >
+                  {i + 1}
+                </span>
+                <span className="text-[17px] font-medium">{line}</span>
+              </li>
+            ))}
+          </ol>
+        </section>
+        <p className="mt-7 flex items-start gap-2 rounded-xl bg-help-soft px-3.5 py-3 text-[15px] leading-relaxed text-help">
           <Icon name="lock" className="mt-0.5 h-4 w-4 shrink-0" /> {t.privacy}
         </p>
         {errorNote}
@@ -226,7 +255,7 @@ export default function SevenDays() {
         footer={
           <>
             {!hasDates && <p className="mb-2.5 text-center text-sm text-ink">{isLagos ? t.needLagosDates : t.needServedDate}</p>}
-            <BigButton onClick={confirmFields} disabled={!canConfirm}>{t.confirm}</BigButton>
+            <BigButton onClick={confirmFields} disabled={!canConfirm} arrow>{t.confirm}</BigButton>
           </>
         }
       >
@@ -330,7 +359,7 @@ export default function SevenDays() {
     return (
       <Shell
         {...shell}
-        footer={<BigButton onClick={toAnswer}>{isLagos ? t.startReply : t.startAnswer}</BigButton>}
+        footer={<BigButton onClick={toAnswer} arrow>{isLagos ? t.startReply : t.startAnswer}</BigButton>}
       >
         {isLagos ? (
           <LagosVerdict t={t} check={result.notice_check} />
@@ -347,7 +376,7 @@ export default function SevenDays() {
               // the hero already says these two; don't repeat them as cards
               .filter((c) => !["deadline_missed", "due_today"].includes(c.id))
               .sort((a, b) => (rank[a.level] ?? 3) - (rank[b.level] ?? 3))
-              .map((c) => <CheckCard key={c.id} level={c.level} {...translate(c)} />)}
+              .map((c, i) => <CheckCard key={c.id} index={i} level={c.level} {...translate(c)} />)}
           </ul>
         </section>
         {errorNote}
@@ -362,12 +391,12 @@ export default function SevenDays() {
         {...shell}
         footer={
           <div className="space-y-3">
-            <BigButton variant={downloaded ? "secondary" : "primary"} onClick={download}>
+            <BigButton variant={downloaded ? "secondary" : "primary"} icon="download" onClick={download}>
               {isLagos ? t.downloadReply : t.downloadAnswer}
             </BigButton>
             {downloaded && (
-              <BigButton variant="help" onClick={toHelp}>
-                {t.next} <Icon name="arrow" />
+              <BigButton variant="help" onClick={toHelp} arrow>
+                {t.next}
               </BigButton>
             )}
           </div>
@@ -387,11 +416,11 @@ export default function SevenDays() {
             <fieldset className="mt-5">
               <legend className="sr-only">{t.answerTitle}</legend>
               <ul className="space-y-2">
-                {defenses.map((d) => {
+                {defenses.map((d, i) => {
                   const on = picked.includes(d.id);
                   return (
-                    <li key={d.id}>
-                      <label className={`flex min-h-14 cursor-pointer gap-3 rounded-xl border-2 px-3.5 py-3 ${on ? "border-ink bg-page" : "border-line hover:border-ink-soft"}`}>
+                    <li key={d.id} className="stagger" style={{ "--i": i }}>
+                      <label className={`press flex min-h-14 cursor-pointer gap-3 rounded-xl border-2 px-3.5 py-3 ${on ? "border-ink bg-mark-soft" : "border-line hover:border-ink-soft hover:bg-page"}`}>
                         <input
                           type="checkbox"
                           className="mt-0.5 h-5 w-5 shrink-0 accent-[#15233f]"
@@ -443,8 +472,8 @@ export default function SevenDays() {
       <p className="mt-3 text-[15px] leading-relaxed text-ink">{t.helpBody}</p>
 
       <ul className="mt-6 space-y-3">
-        {places.map((p) => (
-          <li key={p.name} className="rounded-xl border-2 border-help-soft px-4 py-4">
+        {places.map((p, i) => (
+          <li key={p.name} className="stagger rounded-xl border-2 border-help-soft bg-paper px-4 py-4" style={{ "--i": i }}>
             <p className="text-[17px] font-bold leading-snug text-ink">{p.name}</p>
             {p.address && <p className="mt-1 text-[15px]">{p.address}</p>}
             {p.phone && (
@@ -476,6 +505,31 @@ export default function SevenDays() {
 
 // ---------- pieces used above ----------
 
+// The big number ticks from 0 up to its value once, drawing the eye to the
+// deadline. Screen readers and reduced-motion users get the final number at once.
+function CountTo({ value }) {
+  // This screen only appears after a tap, so window always exists here.
+  const reduced = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const [shown, setShown] = useState(reduced ? value : 0);
+  useEffect(() => {
+    if (reduced) return;
+    const steps = Math.min(Math.max(value, 1), 15);
+    let n = 0;
+    const id = setInterval(() => {
+      n += 1;
+      setShown(Math.round((value * n) / steps));
+      if (n >= steps) clearInterval(id);
+    }, 550 / steps);
+    return () => clearInterval(id);
+  }, [value, reduced]);
+  return (
+    <>
+      <span aria-hidden="true">{shown}</span>
+      <span className="sr-only">{value}</span>
+    </>
+  );
+}
+
 function longDate(isoDate, lang) {
   return new Date(`${isoDate}T00:00:00Z`).toLocaleDateString(LOCALE[lang] || "en-US", {
     weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "UTC",
@@ -493,11 +547,11 @@ function YesNo({ label, yes, no, value, onChange }) {
             type="button"
             aria-pressed={value === v}
             onClick={() => onChange(v)}
-            className={`flex min-h-12 items-center justify-center gap-1.5 rounded-xl border-2 font-semibold ${
-              value === v ? "border-ink bg-ink text-white" : "border-line hover:border-ink"
+            className={`press flex min-h-12 items-center justify-center gap-1.5 rounded-xl border-2 font-semibold ${
+              value === v ? "border-ink bg-ink text-white" : "border-line hover:border-ink hover:bg-page"
             }`}
           >
-            {value === v && <Icon name="check" className="h-4 w-4" />}
+            {value === v && <Icon name="check" className="pop h-4 w-4" />}
             {l}
           </button>
         ))}
@@ -545,7 +599,7 @@ function Countdown({ t, d, lang, onHelp }) {
         <>
           <h1 id="deadline-heading" className="mt-1 flex items-end gap-3">
             <span className="highlight text-[clamp(5.5rem,27vw,7rem)] leading-[0.95] font-extrabold tracking-tighter tabular-nums">
-              {d.days_left}
+              <CountTo value={d.days_left} />
             </span>
             <span className="pb-3 text-2xl font-bold">{t.daysLeft(d.days_left)}</span>
           </h1>
