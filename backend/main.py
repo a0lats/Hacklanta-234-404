@@ -8,6 +8,7 @@ from typing import Literal, Optional
 
 from dotenv import load_dotenv
 from fastapi import Body, FastAPI, File, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
@@ -42,7 +43,7 @@ async def health():
 @app.post("/speak")
 async def speak(payload: dict = Body(...)):
     try:
-        audio = text_to_speech(payload.get("text", ""), payload.get("lang", "english"))
+        audio = await run_in_threadpool(text_to_speech, payload.get("text", ""), payload.get("lang", "english"))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception:
@@ -110,7 +111,7 @@ async def read_notice_ep(photo: UploadFile = File(...)):
     data = await photo.read()
     if len(data) > MAX_IMAGE_BYTES:
         raise HTTPException(status_code=413, detail="Photo too large (max 8 MB).")
-    result = read_notice(data, photo.content_type or "image/jpeg")
+    result = await run_in_threadpool(read_notice, data, photo.content_type or "image/jpeg")
     del data  # read once, never stored
     return result
 
@@ -179,11 +180,7 @@ def _clean(err: Exception) -> str:
     return msg
 
 
-@app.get("/selftest")
-async def selftest():
-    if _SELFTEST["result"] and _time.time() - _SELFTEST["at"] < 60:
-        return {**_SELFTEST["result"], "cached": True}
-
+def _run_selftest():
     import concurrent.futures
 
     from notice_reader import _call_gemini
@@ -193,27 +190,41 @@ async def selftest():
                      "english_voice_set": bool(os.getenv("VOICE_ID_ENGLISH")),
                      "spanish_voice_set": bool(os.getenv("VOICE_ID_SPANISH")),
                      "pidgin_voice_set": bool(os.getenv("VOICE_ID_PIDGIN"))}}
+    try:
+        if out["gemini"]["configured"]:
+            img = (_Path(__file__).parent / "data" / "sample_notice_atlanta.png").read_bytes()
+            try:
+                t0 = _time.time()
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                    raw = ex.submit(_call_gemini, img, "image/png").result(timeout=60)
+                out["gemini"].update(ok=raw.get("served_on") == "2026-10-10",
+                                     served_on=raw.get("served_on"),
+                                     case_number=raw.get("case_number"),
+                                     seconds=round(_time.time() - t0, 1))
+            except Exception as e:  # noqa: BLE001
+                out["gemini"].update(ok=False, error=_clean(e), seconds=round(_time.time() - t0, 1))
 
-    if out["gemini"]["configured"]:
-        img = (_Path(__file__).parent / "data" / "sample_notice_atlanta.png").read_bytes()
-        try:
-            t0 = _time.time()
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                raw = ex.submit(_call_gemini, img, "image/png").result(timeout=40)
-            out["gemini"].update(ok=raw.get("served_on") == "2026-10-10",
-                                 served_on=raw.get("served_on"),
-                                 case_number=raw.get("case_number"),
-                                 seconds=round(_time.time() - t0, 1))
-        except Exception as e:  # noqa: BLE001
-            out["gemini"].update(ok=False, error=_clean(e))
+        if out["voice"]["configured"] and out["voice"]["english_voice_set"]:
+            try:
+                t0 = _time.time()
+                audio = text_to_speech("Test.", "english")
+                out["voice"].update(ok=len(audio) > 1000, bytes=len(audio), seconds=round(_time.time() - t0, 1))
+            except Exception as e:  # noqa: BLE001
+                out["voice"].update(ok=False, error=_clean(e))
+    finally:
+        out["finished_at"] = _time.strftime("%H:%M:%S UTC", _time.gmtime())
+        _SELFTEST.update(at=_time.time(), result=out, running=False)
 
-    if out["voice"]["configured"] and out["voice"]["english_voice_set"]:
-        try:
-            t0 = _time.time()
-            audio = text_to_speech("Test.", "english")
-            out["voice"].update(ok=len(audio) > 1000, bytes=len(audio), seconds=round(_time.time() - t0, 1))
-        except Exception as e:  # noqa: BLE001
-            out["voice"].update(ok=False, error=_clean(e))
 
-    _SELFTEST.update(at=_time.time(), result=out)
-    return out
+@app.get("/selftest")
+async def selftest():
+    """Starts a check in the background; reload after ~30s to see the result."""
+    import threading
+
+    fresh = _SELFTEST["result"] and _time.time() - _SELFTEST["at"] < 60
+    if not fresh and not _SELFTEST.get("running"):
+        _SELFTEST["running"] = True
+        threading.Thread(target=_run_selftest, daemon=True).start()
+    return {"running": bool(_SELFTEST.get("running")),
+            "note": "Reload in about 30 seconds for a new result." if _SELFTEST.get("running") else "Result is fresh (under 60s old).",
+            "last_result": _SELFTEST["result"]}
