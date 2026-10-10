@@ -8,7 +8,7 @@ export function Shell({ t, lang, setLang, place, step, footer, demo, children })
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col">
       <header className="flex items-center justify-between gap-3 px-5 pt-5 pb-4">
-        <span className="flex items-center gap-2 text-xl font-extrabold tracking-tight text-ink">
+        <span className="flex shrink-0 items-center gap-2 text-xl font-extrabold tracking-tight whitespace-nowrap text-ink">
           <span aria-hidden="true" className="flex h-8 w-8 items-center justify-center rounded-lg bg-mark text-ink">
             <Icon name="calendar" className="h-[1.1rem] w-[1.1rem]" />
           </span>

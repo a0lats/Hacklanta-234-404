@@ -89,7 +89,8 @@ def lagos_cards(fields: dict, extras: dict) -> dict:
                 "notice_too_short", "amber", "This notice may be too short",
                 f"It gives you {result['given_days']} days. For your rent "
                 f"period the law may require at least {result['required_days']} "
-                "days. Ask a lawyer or legal aid to check."))
+                "days, unless your tenancy agreement sets its own notice period. "
+                "Ask a lawyer or legal aid to check."))
         if not result["verified"]:
             cards.append(_card(
                 "lagos_unverified", "amber", "Rules not yet confirmed",

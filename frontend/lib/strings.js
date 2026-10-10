@@ -133,6 +133,41 @@ const en = {
   retry: "Try again",
   demoNote: "Demo mode: sample data",
 
+  // Calendar, summary, legal words, Lagos force check
+  addToCalendar: "Add to my calendar",
+  calendarSaved: "Calendar file saved. Open it to add the reminder.",
+  calendarHint: "Reminds you 2 days before, 1 day before, and that morning.",
+  calTitle: "Eviction answer due by 5 PM",
+  calNotes: (f) =>
+    `File your answer with the court by 5:00 PM today.${f.case_number ? ` Case ${f.case_number}.` : ""}${f.court ? ` ${f.court}.` : ""} Free help: legal aid. Made with 7 Days.`,
+  calReminder: "Your eviction answer is due soon. File by 5 PM on the deadline.",
+  summaryButton: "Download a summary for legal aid",
+  summaryHint: "One page with your dates, case and what you ticked. Show it to legal aid so they can help faster.",
+  makingSummary: "Making your summary…",
+  summarySaved: "Summary downloaded. Bring it with your paper.",
+  legalWordsTitle: "Legal words on your paper",
+  legalWordsSub: "Tap a word to see what it means and hear it.",
+  hearWord: "Hear it",
+  forceTitle: "Is your landlord forcing you out?",
+  forceSub: "Answer what's true. You can skip this.",
+  forceQ: {
+    locks: "Did they change the locks or lock you out?",
+    things: "Did they remove your things, doors, windows or roof?",
+    threats: "Did they threaten you or send people to force you out?",
+  },
+  forceIllegalTitle: "This may be illegal",
+  forceIllegalBody:
+    "In Lagos, only a court can remove you. A landlord who changes locks, removes doors or the roof, throws out your things, or uses threats without a court order may be committing an offence.",
+  forceStepsTitle: "What you can do now",
+  forceSteps: [
+    "Stay safe. Don't fight back.",
+    "Take photos and videos. Write down dates, times and names.",
+    "Keep every notice and rent receipt.",
+    "Get legal help today. You can also report it at a police station.",
+  ],
+  forceNone: "Good. Even so, your landlord needs a court order to remove you. If any of this starts, come back here.",
+  lagosAgreement: "These minimums apply if your tenancy agreement doesn't set its own notice period. Check your agreement.",
+
   cards: {},
   defenses: {},
 };
@@ -231,6 +266,21 @@ const es = {
   retry: "Intentar otra vez",
   demoNote: "Modo de prueba: datos de ejemplo",
 
+  addToCalendar: "Agregar a mi calendario",
+  calendarSaved: "Archivo de calendario guardado. Ábralo para agregar el recordatorio.",
+  calendarHint: "Le avisa 2 días antes, 1 día antes y esa mañana.",
+  calTitle: "Respuesta de desalojo vence a las 5 PM",
+  calNotes: (f) =>
+    `Presente su respuesta en la corte antes de las 5:00 PM de hoy.${f.case_number ? ` Caso ${f.case_number}.` : ""}${f.court ? ` ${f.court}.` : ""} Ayuda gratis: ayuda legal. Hecho con 7 Days.`,
+  calReminder: "Su respuesta de desalojo vence pronto. Preséntela antes de las 5 PM del día límite.",
+  summaryButton: "Descargar un resumen para la ayuda legal",
+  summaryHint: "Una página con sus fechas, su caso y lo que marcó. Muéstresela a la ayuda legal para que le ayuden más rápido.",
+  makingSummary: "Preparando su resumen…",
+  summarySaved: "Resumen descargado. Llévelo con su papel.",
+  legalWordsTitle: "Palabras legales en su papel",
+  legalWordsSub: "Toque una palabra para ver qué significa y escucharla.",
+  hearWord: "Escuchar",
+
   cards: {
     deadline_missed: { title: "Es posible que sus 7 días ya pasaron", body: () => "Comuníquese hoy con la ayuda legal o con el secretario de la corte. Pregunte qué opciones quedan. No espere." },
     due_today: { title: "Su respuesta vence HOY a las 5:00 PM", body: () => "Preséntela hoy: en línea, en la corte o con ayuda legal." },
@@ -319,11 +369,38 @@ const pcm = {
   error: "E no work. Check your network and try again.",
   retry: "Try again",
 
+  summaryButton: "Download summary for legal aid",
+  summaryHint: "One page wey get your dates and wetin happen. Show am to lawyer or legal aid make dem help you quick.",
+  makingSummary: "We dey prepare your summary…",
+  summarySaved: "Summary don download. Carry am with your notice.",
+  legalWordsTitle: "Legal words for your paper",
+  legalWordsSub: "Touch any word to see wetin e mean and hear am.",
+  hearWord: "Hear am",
+  forceTitle: "Your landlord dey force you comot?",
+  forceSub: "Answer wetin true. You fit skip dis one.",
+  forceQ: {
+    locks: "Dem change your lock or lock you outside?",
+    things: "Dem remove your things, door, window or roof?",
+    threats: "Dem threaten you or send people make dem force you comot?",
+  },
+  forceIllegalTitle: "Dis one fit be against the law",
+  forceIllegalBody:
+    "For Lagos, na only court fit remove you. Landlord wey change lock, remove door or roof, throw your things outside, or threaten you without court order fit dey commit offence.",
+  forceStepsTitle: "Wetin you fit do now",
+  forceSteps: [
+    "Make you dey safe. No fight back.",
+    "Snap photo and video. Write the date, time and names.",
+    "Keep every notice and rent receipt.",
+    "Find legal help today. You fit also report am for police station.",
+  ],
+  forceNone: "Good. Even so, landlord need court order to remove you. If any of these one start, come back here.",
+  lagosAgreement: "These minimum times apply if your tenancy agreement no talk how long notice suppose be. Check your agreement.",
+
   cards: {
     notice_too_short: {
       title: "Dis notice fit too short",
       body: ({ result }) =>
-        `E give you ${result.notice_check.given_days} days. For how you dey pay rent, the law fit want at least ${result.notice_check.required_days} days. Ask lawyer or legal aid make dem check am.`,
+        `E give you ${result.notice_check.given_days} days. For how you dey pay rent, the law fit want at least ${result.notice_check.required_days} days, if your agreement no talk otherwise. Ask lawyer or legal aid make dem check am.`,
     },
     lagos_unverified: { title: "We never confirm these rules", body: () => "We still dey check these Lagos notice periods. Confirm with lawyer before you rely on dem." },
     need_dates: { title: "We need two dates and how you dey pay rent", body: () => "The date wey dey the notice, the date wey dem say make you comot, and how you dey pay rent." },

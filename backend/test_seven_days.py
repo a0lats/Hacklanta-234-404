@@ -67,3 +67,21 @@ def test_lagos_short_notice():
     assert "comot" in e["text"]
     p = client.post("/answer", json={"fields": f, "extras": {"rent_period": "yearly"}})
     assert p.content[:4] == b"%PDF"
+
+
+def test_summary_pdf_atlanta_and_lagos():
+    from fastapi.testclient import TestClient
+    from main import app
+    c = TestClient(app)
+    r = c.post("/summary", json={
+        "fields": {"jurisdiction": "atlanta", "served_on": "2026-10-10", "case_number": "26-ED-1",
+                   "court": "Magistrate Court", "amount_claimed": 1850},
+        "extras": {"monthly_rent": 900}, "today": "2026-10-10",
+        "selected_defenses": ["paid", "bogus"], "own_words": "I paid in cash.",
+    })
+    assert r.status_code == 200 and r.content[:4] == b"%PDF"
+    r = c.post("/summary", json={
+        "fields": {"jurisdiction": "lagos", "notice_date": "2026-10-01", "vacate_by": "2026-10-15"},
+        "extras": {"rent_period": "yearly"}, "lagos_force": {"locks": True, "things": False},
+    })
+    assert r.status_code == 200 and r.content[:4] == b"%PDF"

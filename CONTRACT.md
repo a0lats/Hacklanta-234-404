@@ -112,6 +112,17 @@ Show as checkboxes, **all unchecked**. The tenant ticks their own. Never pre-tic
 Returns the PDF bytes (Atlanta: answer draft; Lagos: reply letter). Download or share with the Web Share API.
 Unknown defense id → 422.
 
+## `POST /summary` → `application/pdf`
+
+Same body as `/answer`, plus optional `lagos_force: {locks, things, threats}` (true/false/null).
+Returns a one-page "Summary for legal aid": deadline (or Lagos notice length), court, case number,
+amount, what the tenant ticked, and the red/amber things to check. Made on the spot, never stored.
+
+## Made on the phone (no endpoint)
+
+- **Calendar**: `lib/calendar.js` builds an `.ics` for the answer deadline (4–5 PM Atlanta time) with reminders 2 days before, 1 day before and that morning.
+- **Legal words**: `lib/glossary.js` holds team-written meanings (EN/ES Atlanta, EN/Pidgin Lagos). "Hear it" sends the text to `/speak`.
+
 ## `GET /legal-aid?jurisdiction=atlanta`
 `{"places": [{"name", "type", "website", "phone", "address", "verify"}], "note": "..."}`
 Fill in phones/addresses in `backend/data/legal_aid.json` after checking each org's own site.
