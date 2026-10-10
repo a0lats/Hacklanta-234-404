@@ -87,7 +87,7 @@ def _call_gemini(image_bytes: bytes, mime_type: str) -> dict:
 
 
 def read_notice(image_bytes: bytes, mime_type: str = "image/jpeg",
-                timeout_s: float = 15.0) -> dict:
+                timeout_s: float = 30.0) -> dict:
     """Returns {"fields": {...}, "unclear": [...], "source": "...", "note": ...}."""
     if os.environ.get("DEMO_MODE") == "1":
         return {"fields": dict(SAMPLE_FIELDS), "unclear": [],
