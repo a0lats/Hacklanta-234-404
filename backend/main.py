@@ -154,3 +154,61 @@ async def answer_ep(req: AnswerRequest):
 @app.get("/legal-aid")
 async def legal_aid(jurisdiction: Literal["atlanta", "lagos"] = "atlanta"):
     return {"places": LEGAL_AID.get(jurisdiction, []), "note": LEGAL_AID["_note"]}
+
+
+# ---------- Self-test: is the live server's Gemini + voice setup working? ----------
+# GET /selftest reads the printed SAMPLE notice with Gemini and makes one short
+# voice clip. Returns only ok/fail and a short reason, never keys. Cached for 10
+# minutes so repeated checks don't spend credits.
+import time as _time  # noqa: E402
+
+_SELFTEST = {"at": 0.0, "result": None}
+
+
+def _clean(err: Exception) -> str:
+    msg = f"{type(err).__name__}: {err}"[:200]
+    for k in ("GEMINI_API_KEY", "ELEVENLABS_API_KEY"):
+        v = os.getenv(k)
+        if v:
+            msg = msg.replace(v, "***")
+    return msg
+
+
+@app.get("/selftest")
+async def selftest():
+    if _SELFTEST["result"] and _time.time() - _SELFTEST["at"] < 600:
+        return {**_SELFTEST["result"], "cached": True}
+
+    import concurrent.futures
+
+    from notice_reader import _call_gemini
+
+    out = {"gemini": {"configured": bool(os.getenv("GEMINI_API_KEY"))},
+           "voice": {"configured": bool(os.getenv("ELEVENLABS_API_KEY")),
+                     "english_voice_set": bool(os.getenv("VOICE_ID_ENGLISH")),
+                     "spanish_voice_set": bool(os.getenv("VOICE_ID_SPANISH")),
+                     "pidgin_voice_set": bool(os.getenv("VOICE_ID_PIDGIN"))}}
+
+    if out["gemini"]["configured"]:
+        img = (_Path(__file__).parent / "data" / "sample_notice_atlanta.png").read_bytes()
+        try:
+            t0 = _time.time()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                raw = ex.submit(_call_gemini, img, "image/png").result(timeout=25)
+            out["gemini"].update(ok=raw.get("served_on") == "2026-10-10",
+                                 served_on=raw.get("served_on"),
+                                 case_number=raw.get("case_number"),
+                                 seconds=round(_time.time() - t0, 1))
+        except Exception as e:  # noqa: BLE001
+            out["gemini"].update(ok=False, error=_clean(e))
+
+    if out["voice"]["configured"] and out["voice"]["english_voice_set"]:
+        try:
+            t0 = _time.time()
+            audio = text_to_speech("Test.", "english")
+            out["voice"].update(ok=len(audio) > 1000, bytes=len(audio), seconds=round(_time.time() - t0, 1))
+        except Exception as e:  # noqa: BLE001
+            out["voice"].update(ok=False, error=_clean(e))
+
+    _SELFTEST.update(at=_time.time(), result=out)
+    return out
