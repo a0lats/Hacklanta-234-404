@@ -1,24 +1,23 @@
-import { Geist, Geist_Mono } from "next/font/google";
+// Public Sans: an open-source typeface made for US government sites. Plain,
+// trustworthy, very readable on small screens. Self-hosted from npm, so the
+// build never depends on reaching Google Fonts.
+import "@fontsource-variable/public-sans";
 import "./globals.css";
 
-const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
-const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
-
 export const metadata = {
-  title: "Witness",
-  description: "A second opinion on the official oil spill investigation.",
+  title: "7 Days",
+  description: "Got eviction papers? Find your real deadline, understand the paper, and start your answer. Nothing is saved.",
 };
 
-// Makes the page fit phone screens and colors the phone's browser bar green.
 export const viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#0a6b3d",
+  themeColor: "#15233f",
 };
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+    <html lang="en" className="antialiased">
       <body className="font-sans">{children}</body>
     </html>
   );

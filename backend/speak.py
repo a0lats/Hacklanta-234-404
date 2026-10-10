@@ -22,6 +22,9 @@ client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 VOICES = {
     "english": os.getenv("VOICE_ID_ENGLISH"),
     "pidgin": os.getenv("VOICE_ID_PIDGIN") or os.getenv("VOICE_ID_ENGLISH"),
+    # 7 Days, Atlanta: Spanish. The multilingual model reads Spanish text; set a
+    # Spanish-speaking voice in VOICE_ID_SPANISH for a natural accent.
+    "spanish": os.getenv("VOICE_ID_SPANISH") or os.getenv("VOICE_ID_ENGLISH"),
 }
 
 # Multilingual model handles Nigerian English / Pidgin text best.

@@ -1,20 +1,48 @@
 @import "tailwindcss";
 
-/* Witness theme: deep green + white, amber only for mismatches.
-   Each --color-* below becomes Tailwind classes, e.g. bg-brand, text-warn, border-brand-soft. */
+/* 7 Days theme: court-paper navy on cool white. The one loud thing is the
+   highlighter mark under the countdown. Red only for real urgency.
+   Each --color-* below becomes Tailwind classes, e.g. bg-ink, text-urgent. */
 @theme {
-  --color-brand: #0a6b3d;       /* deep green: buttons, headings */
-  --color-brand-dark: #064d2b;  /* pressed buttons */
-  --color-brand-soft: #e7f2ec;  /* light green backgrounds */
-  --color-warn: #f5a524;        /* amber: mismatches only */
-  --color-warn-soft: #fff4db;   /* light amber backgrounds */
-  --color-warn-dark: #7a4a00;   /* text on amber */
-  --color-ink: #0f1f17;         /* main text */
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-ink: #15233f;        /* legal-ink navy: text, primary buttons */
+  --color-ink-soft: #5b6a85;   /* secondary text */
+  --color-page: #edf1f6;       /* cool folder grey behind the paper */
+  --color-paper: #ffffff;
+  --color-line: #d5dce6;       /* borders, input outlines */
+  --color-mark: #ffe14d;       /* highlighter yellow: the deadline only */
+  --color-help: #0e6e66;       /* teal: legal aid, "you have options" */
+  --color-help-soft: #e3f2f0;
+  --color-urgent: #b3261e;     /* red: missed / due today / lockouts */
+  --color-urgent-soft: #fbe9e7;
+  --color-caution: #7a4b00;    /* text on amber */
+  --color-caution-soft: #fff3d1;
+  --font-sans: "Public Sans Variable", system-ui, sans-serif;
 }
 
 body {
-  background: #ffffff;
+  background: var(--color-page);
   color: var(--color-ink);
+}
+
+/* The highlighter swipe behind the countdown number. It draws in once. */
+.highlight {
+  background-image: linear-gradient(transparent 58%, var(--color-mark) 58%, var(--color-mark) 92%, transparent 92%);
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  animation: swipe 700ms cubic-bezier(0.2, 0.7, 0.2, 1) 150ms both;
+  padding: 0 0.12em;
+}
+
+@keyframes swipe {
+  from { background-size: 0% 100%; }
+  to { background-size: 100% 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .highlight { animation: none; }
+}
+
+:focus-visible {
+  outline: 3px solid var(--color-ink);
+  outline-offset: 2px;
 }

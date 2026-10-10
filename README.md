@@ -1,2 +1,57 @@
-# Hacklanta-234-404 Demo
-#test commit account
+# 7 Days
+
+Snap your eviction paper. See your real deadline, hear what it means, check your options, start your answer. Nothing is saved.
+
+Team 404 + 234 — Hacklanta 2026 (Cox Social Good · Zero Data · ElevenLabs).
+
+## Run the frontend
+```bash
+cd frontend
+npm install
+NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev   # leave unset for demo mode (sample data)
+```
+In Vercel, set `NEXT_PUBLIC_API_URL` to the Render URL. Screens: `frontend/app/page.js`. All text: `frontend/lib/strings.js` (EN / ES / Pidgin). All backend calls: `frontend/lib/api.js`.
+
+## Run the backend
+```bash
+cd backend
+pip install -r requirements.txt
+export GEMINI_API_KEY=...        # reads the photo
+# export DEMO_MODE=1             # stage backup: /read-notice returns the sample notice
+uvicorn main:app --reload --port 8000
+pytest -q                        # all backend tests
+```
+`/speak` (ElevenLabs) is unchanged and now also accepts `lang: "spanish"` (set `VOICE_ID_SPANISH`, or it falls back to the English voice). The old Witness endpoints are still in `main.py`; remove them once nobody needs them.
+
+## Known gaps
+- The "things to check" cards and the defense list come from the backend in English only, even in Spanish or Pidgin mode.
+- Holidays are only verified for 2026 (`deadline.py` flags later dates).
+
+## Files
+| File | What it does | Owner |
+|---|---|---|
+| `backend/deadline.py` | 7-day countdown, weekend + Georgia holiday rule. Plain Python. | Jade |
+| `backend/checks.py` | "Things to check" cards. Plain rules, information only. | Jade |
+| `backend/lagos.py` | Lagos notice-period check. **Unverified — Olu must confirm.** | Olu |
+| `backend/notice_reader.py` | Gemini reads the photo into fields; falls back to manual entry. | Travis |
+| `backend/explain.py` | Fixed plain-language scripts in en / es / pcm. **Native speakers review.** | Olu |
+| `backend/answer_pdf.py` | Answer draft (tenant ticks own defenses) / Lagos reply letter. | Jade |
+| `backend/main.py` | FastAPI endpoints. Stateless. | Travis |
+| `backend/data/legal_aid.json` | Where to go. **Fill in phones/addresses after checking.** | Mo |
+| `CONTRACT.md` | Request/response shapes for the frontend. | Mo |
+| `demo/` | Printable SAMPLE notices + example output PDFs. | everyone |
+| `tools/make_sample_notices.py` | Regenerates the demo notices. | — |
+
+## Before the pitch — must check
+1. Deadline: rule from Georgia magistrate courts (7 days incl. weekends/holidays; if day 7 is a weekend/holiday → next business day, 5 PM). Holidays: georgia.gov 2026 list. Ask a clerk to confirm.
+2. Lagos notice periods in `lagos.py` against the Lagos State Tenancy Law 2011, then set `VERIFIED = True`.
+3. Pidgin and Spanish scripts in `explain.py` read by native speakers.
+4. Legal aid contacts in `legal_aid.json`.
+5. Claim wording: "read once, never saved by us" (the photo does go to Gemini).
+
+## Facts used in the pitch (sources)
+- ~144,000 metro Atlanta filings in 2025; more than NYC — Eviction Lab via Capital B / Rough Draft Atlanta
+- ~1 filing per 4 renter households inside the City of Atlanta — Rough Draft Atlanta
+- ~65% of filings dismissed after payment — Rough Draft Atlanta
+- Georgia bars Atlanta from guaranteeing right to counsel — Rough Draft Atlanta
+- Black renters ~53% of renters, ~70% of filings — Eviction Lab via Capital B / WABE

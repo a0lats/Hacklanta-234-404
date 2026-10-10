@@ -1,0 +1,48 @@
+{
+  "_note": "Websites come from the Fulton County Magistrate Court tenant pamphlet. Addresses, hours and phone numbers MUST be checked by the team on each organization's own site before the demo. Fields marked verify:true are not yet checked.",
+  "atlanta": [
+    {
+      "name": "Atlanta Legal Aid Society",
+      "type": "legal_aid",
+      "website": "https://www.atlantalegalaid.org",
+      "phone": null,
+      "address": null,
+      "verify": true
+    },
+    {
+      "name": "Georgia Legal Services Program",
+      "type": "legal_aid",
+      "website": "https://www.glsp.org",
+      "phone": null,
+      "address": null,
+      "verify": true
+    },
+    {
+      "name": "Atlanta Volunteer Lawyers Foundation - Housing Court Assistance Center",
+      "type": "legal_aid",
+      "website": "https://avlf.org",
+      "phone": null,
+      "address": null,
+      "verify": true
+    },
+    {
+      "name": "Magistrate Court of Fulton County (free e-file terminals, free form generator)",
+      "type": "court",
+      "county": "Fulton",
+      "website": "https://www.fultoncountyga.gov",
+      "phone": null,
+      "address": null,
+      "verify": true
+    }
+  ],
+  "lagos": [
+    {
+      "name": "Lagos State Office of the Public Defender",
+      "type": "legal_aid",
+      "website": null,
+      "phone": null,
+      "address": null,
+      "verify": true
+    }
+  ]
+}
