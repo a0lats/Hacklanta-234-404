@@ -67,6 +67,7 @@ export function Icon({ name, className = "h-5 w-5" }) {
     pin: <><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z" /><circle cx="12" cy="9.5" r="2.5" /></>,
     calendar: <><rect x="4" y="5" width="16" height="16" rx="2" /><path d="M8 3v4M16 3v4M4 10h16" /></>,
     download: <><path d="M12 4v11M7 10l5 5 5-5" /><path d="M5 20h14" /></>,
+    chevron: <path d="m6 9 6 6 6-6" />,
   };
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -168,12 +169,29 @@ export function Loading({ message, sub }) {
 
 // A "thing to check". Urgent = red + warning icon, option = amber + circle icon,
 // info = grey + info icon. The icon and wording carry the meaning, not just color.
-export function CheckCard({ title, body, level, index = 0 }) {
+export function CheckCard({ title, body, level, index = 0, collapsible = false }) {
   const look = {
     red: { box: "border-urgent bg-urgent-soft", head: "text-urgent", icon: "alert" },
     amber: { box: "border-caution bg-caution-soft", head: "text-caution", icon: "option" },
     info: { box: "border-line bg-page", head: "text-ink", icon: "info" },
   }[level] ?? { box: "border-line bg-page", head: "text-ink", icon: "info" };
+  // Folded cards show the title only; tap to open. Urgent (red) cards start open.
+  if (collapsible) {
+    return (
+      <li className={`stagger rounded-r-xl border-l-4 ${look.box}`} style={{ "--i": index }}>
+        <details open={level === "red"} className="group">
+          <summary className="press flex min-h-12 cursor-pointer list-none items-start gap-3 px-4 py-3.5 [&::-webkit-details-marker]:hidden">
+            <span className={`mt-0.5 shrink-0 ${look.head}`}>
+              <Icon name={look.icon} />
+            </span>
+            <span className={`flex-1 font-semibold leading-snug ${look.head}`}>{title}</span>
+            <Icon name="chevron" className={`mt-0.5 h-5 w-5 shrink-0 transition-transform group-open:rotate-180 ${look.head}`} />
+          </summary>
+          <p className="-mt-1 px-4 pb-3.5 pl-12 text-[15px] leading-relaxed text-ink">{body}</p>
+        </details>
+      </li>
+    );
+  }
   return (
     <li className={`stagger flex gap-3 rounded-r-xl border-l-4 px-4 py-3.5 ${look.box}`} style={{ "--i": index }}>
       <span className={`mt-0.5 shrink-0 ${look.head}`}>

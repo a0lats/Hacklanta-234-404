@@ -102,7 +102,27 @@ body {
   50% { opacity: 0.35; }
 }
 
+/* Photo reading: a soft highlighter band sweeps down the photo. */
+.scan-line {
+  top: -4rem;
+  background: linear-gradient(transparent, color-mix(in srgb, var(--color-mark) 55%, transparent), transparent);
+  animation: scan 1.8s ease-in-out infinite;
+}
+@keyframes scan {
+  to { top: 100%; }
+}
+
+/* Lagos notice bar grows to its length once. */
+.grow-bar {
+  animation: grow 800ms cubic-bezier(0.2, 0.7, 0.2, 1) 200ms both;
+  transform-origin: left;
+}
+@keyframes grow {
+  from { transform: scaleX(0); }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .scan-line, .grow-bar { animation: none; }
   .highlight { animation: none; }
   .loading-bar { animation: none; width: 100%; opacity: 0.5; }
   .screen-in, .stagger, .pop, .pulse-dot { animation: none; }

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { STRINGS, LOCALE, voiceFor } from "@/lib/strings";
 import { SAMPLE_FIELDS } from "@/lib/fake";
-import { DEMO, readNotice, checkNotice, explainNotice, speak, getDefenses, makeAnswer, makeSummary, getLegalAid, closedLabel } from "@/lib/api";
+import { DEMO, wakeBackend, readNotice, checkNotice, explainNotice, speak, getDefenses, makeAnswer, makeSummary, getLegalAid, closedLabel } from "@/lib/api";
 import { deadlineIcs, saveBlob } from "@/lib/calendar";
 import { legalWords } from "@/lib/glossary";
 import { Shell, BigButton, Loading, CheckCard, Field, Icon, inputClass, ErrorNote } from "@/components/ui";
@@ -39,6 +39,12 @@ export default function SevenDays() {
 
   const t = STRINGS[lang];
   const isLagos = place === "lagos";
+
+  // Render's free server sleeps when unused. Nudge it awake as soon as the app
+  // opens, so it's ready by the time the photo is taken.
+  useEffect(() => {
+    wakeBackend();
+  }, []);
 
   // Keep <html lang> in step with the chosen language for screen readers.
   useEffect(() => {
@@ -82,8 +88,9 @@ export default function SevenDays() {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    setPhotoUrl(URL.createObjectURL(file));
-    run({ message: t.reading, sub: t.readingSub }, async () => {
+    const url = URL.createObjectURL(file);
+    setPhotoUrl(url);
+    run({ message: t.reading, sub: t.readingSub, photo: url, steps: place === "lagos" ? t.readingStepsLagos : t.readingSteps }, async () => {
       const r = await readNotice(file, place);
       setFields({ ...r.fields, jurisdiction: place });
       setUnclear(r.unclear || []);
@@ -201,7 +208,11 @@ export default function SevenDays() {
   if (busy) {
     return (
       <Shell {...shell}>
-        <Loading message={busy.message} sub={busy.sub} />
+        {busy.photo ? (
+          <PhotoReading photo={busy.photo} steps={busy.steps} sub={busy.sub} />
+        ) : (
+          <Loading message={busy.message} sub={busy.sub} />
+        )}
       </Shell>
     );
   }
@@ -409,13 +420,22 @@ export default function SevenDays() {
         {isLagos ? (
           <LagosVerdict t={t} check={result.notice_check} />
         ) : (
-          <Countdown t={t} d={deadline} lang={lang} onHelp={toHelp} />
+          <Countdown
+            t={t}
+            d={deadline}
+            lang={lang}
+            onHelp={toHelp}
+            actions={
+              <>
+                <Listen key={lang} t={t} fields={fields} extras={extras} lang={lang} />
+                {deadline && deadline.status !== "missed" && (
+                  <CalendarButton t={t} onClick={addToCalendar} saved={calendarSaved} />
+                )}
+              </>
+            }
+          />
         )}
-        {!isLagos && deadline && deadline.status !== "missed" && (
-          <CalendarButton t={t} onClick={addToCalendar} saved={calendarSaved} />
-        )}
-
-        <Listen key={lang} t={t} fields={fields} extras={extras} lang={lang} />
+        {isLagos && <Listen key={lang} t={t} fields={fields} extras={extras} lang={lang} />}
 
         {isLagos && <ForceCheck t={t} force={force} setForce={setForce} />}
 
@@ -426,7 +446,7 @@ export default function SevenDays() {
               // the hero already says these two; don't repeat them as cards
               .filter((c) => !["deadline_missed", "due_today"].includes(c.id))
               .sort((a, b) => (rank[a.level] ?? 3) - (rank[b.level] ?? 3))
-              .map((c, i) => <CheckCard key={c.id} index={i} level={c.level} {...translate(c)} />)}
+              .map((c, i) => <CheckCard key={c.id} index={i} level={c.level} collapsible {...translate(c)} />)}
           </ul>
         </section>
 
@@ -639,7 +659,7 @@ function YesNo({ label, yes, no, value, onChange }) {
 
 // The deadline hero: the number with the highlighter, the date, how it was
 // counted, and what it means. Three states: open, due today, possibly missed.
-function Countdown({ t, d, lang, onHelp }) {
+function Countdown({ t, d, lang, onHelp, actions }) {
   if (!d) return null;
   return (
     <section aria-labelledby="deadline-heading" aria-live="polite">
@@ -687,6 +707,7 @@ function Countdown({ t, d, lang, onHelp }) {
         </>
       )}
 
+      {actions}
       {d.status !== "missed" && <DayStrip t={t} d={d} lang={lang} />}
       {d.status !== "missed" && <p className="mt-5 text-[15px] leading-relaxed text-ink">{t.deadlineMeans}</p>}
     </section>
@@ -710,7 +731,7 @@ function DayStrip({ t, d, lang }) {
   return (
     <figure className="mt-7">
       <figcaption className="text-[15px] font-semibold">{t.stripLabel}</figcaption>
-      <ol className="-mx-5 mt-3 flex snap-x gap-1.5 overflow-x-auto px-5 pb-2" aria-label={t.stripLabel}>
+      <ol className="mt-3 grid grid-cols-5 gap-1.5" aria-label={t.stripLabel}>
         {days.map((x, i) => {
           const iso = x.toISOString().slice(0, 10);
           const isDue = iso === d.deadline;
@@ -725,7 +746,7 @@ function DayStrip({ t, d, lang }) {
                 ? "border border-dashed border-ink-soft/60 text-ink-soft"
                 : "bg-page text-ink";
           return (
-            <li key={iso} className={`relative flex w-[3.4rem] shrink-0 snap-start flex-col items-center rounded-lg py-2 text-center ${style}`}>
+            <li key={iso} className={`relative flex min-w-0 flex-col items-center rounded-lg py-2 text-center ${style}`}>
               <span className="text-[11px]">{fmt(x, { weekday: "short" })}</span>
               <span className={`text-lg leading-tight tabular-nums ${closed ? "line-through" : ""}`}>{fmt(x, { day: "numeric" })}</span>
               <span className="mt-0.5 text-[10px] leading-tight">{label}</span>
@@ -752,6 +773,24 @@ function LagosVerdict({ t, check }) {
         </span>
         <span className="pb-3 text-2xl font-bold">{t.days}</span>
       </h1>
+      {check.required_days && (
+        <figure className="mt-5">
+          <div
+            className="h-4 w-full overflow-hidden rounded-full bg-page"
+            role="img"
+            aria-label={t.noticeBar(check.given_days, check.required_days)}
+          >
+            <div
+              className={`grow-bar h-full rounded-full ${check.ok === false ? "bg-caution" : "bg-help"}`}
+              style={{ width: `${Math.max(3, Math.min(100, (check.given_days / check.required_days) * 100))}%` }}
+            />
+          </div>
+          <figcaption className="mt-1.5 flex justify-between text-sm font-semibold">
+            <span className={check.ok === false ? "text-caution" : "text-help"}>{t.noticeGiven(check.given_days)}</span>
+            <span className="text-ink-soft">{t.noticeNeeded(check.required_days)}</span>
+          </figcaption>
+        </figure>
+      )}
       <p className="mt-5 flex items-start gap-2 text-xl leading-snug">
         {check.ok === false && <span className="mt-1 text-caution"><Icon name="option" /></span>}
         {check.ok === false ? t.lagosNoticeTitle(check.given_days, check.required_days) : t.lagosLooksOk}
@@ -957,5 +996,26 @@ function LegalWords({ t, place, lang }) {
         )}
       </div>
     </section>
+  );
+}
+
+// While the photo is read: the photo itself with a scanning line, and short
+// steps that change every ~2 seconds so the wait feels like progress.
+function PhotoReading({ photo, steps, sub }) {
+  const [i, setI] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setI((n) => Math.min(n + 1, steps.length - 1)), 2000);
+    return () => clearInterval(id);
+  }, [steps.length]);
+  return (
+    <div className="flex flex-col items-center py-10 text-center" role="status" aria-live="polite">
+      <div className="relative w-full max-w-[16rem] overflow-hidden rounded-2xl border border-line bg-page">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={photo} alt="" className="h-72 w-full object-cover opacity-90" />
+        <div aria-hidden="true" className="scan-line absolute inset-x-0 h-16" />
+      </div>
+      <p key={i} className="pop mt-7 text-xl font-semibold text-ink">{steps[i]}</p>
+      {sub && <p className="mt-2 max-w-xs text-[15px] text-ink-soft">{sub}</p>}
+    </div>
   );
 }
