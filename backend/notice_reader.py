@@ -80,7 +80,13 @@ def _call_gemini(image_bytes: bytes, mime_type: str) -> dict:
             PROMPT.format(keys=", ".join(FIELDS)),
         ],
         config=types.GenerateContentConfig(
-            response_mime_type="application/json", temperature=0
+            response_mime_type="application/json",
+            temperature=0,
+            # Reading dates off a form doesn't need deep reasoning. "low" is much
+            # faster than the default ("medium"). Allowed for 3.8 Flash: low/medium/high.
+            thinking_config=types.ThinkingConfig(
+                thinking_level=os.environ.get("GEMINI_THINKING", "low")
+            ),
         ),
     )
     return json.loads(resp.text)

@@ -158,8 +158,8 @@ async def legal_aid(jurisdiction: Literal["atlanta", "lagos"] = "atlanta"):
 
 # ---------- Self-test: is the live server's Gemini + voice setup working? ----------
 # GET /selftest reads the printed SAMPLE notice with Gemini and makes one short
-# voice clip. Returns only ok/fail and a short reason, never keys. Cached for 10
-# minutes so repeated checks don't spend credits.
+# voice clip. Returns only ok/fail and a short reason, never keys. Cached for 60
+# seconds so repeated checks don't spend credits.
 import time as _time  # noqa: E402
 
 _SELFTEST = {"at": 0.0, "result": None}
@@ -181,7 +181,7 @@ def _clean(err: Exception) -> str:
 
 @app.get("/selftest")
 async def selftest():
-    if _SELFTEST["result"] and _time.time() - _SELFTEST["at"] < 600:
+    if _SELFTEST["result"] and _time.time() - _SELFTEST["at"] < 60:
         return {**_SELFTEST["result"], "cached": True}
 
     import concurrent.futures
@@ -199,7 +199,7 @@ async def selftest():
         try:
             t0 = _time.time()
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                raw = ex.submit(_call_gemini, img, "image/png").result(timeout=25)
+                raw = ex.submit(_call_gemini, img, "image/png").result(timeout=40)
             out["gemini"].update(ok=raw.get("served_on") == "2026-10-10",
                                  served_on=raw.get("served_on"),
                                  case_number=raw.get("case_number"),
