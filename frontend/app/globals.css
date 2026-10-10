@@ -1,26 +1,20 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+/* Witness theme: deep green + white, amber only for mismatches.
+   Each --color-* below becomes Tailwind classes, e.g. bg-brand, text-warn, border-brand-soft. */
+@theme {
+  --color-brand: #0a6b3d;       /* deep green: buttons, headings */
+  --color-brand-dark: #064d2b;  /* pressed buttons */
+  --color-brand-soft: #e7f2ec;  /* light green backgrounds */
+  --color-warn: #f5a524;        /* amber: mismatches only */
+  --color-warn-soft: #fff4db;   /* light amber backgrounds */
+  --color-warn-dark: #7a4a00;   /* text on amber */
+  --color-ink: #0f1f17;         /* main text */
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: #ffffff;
+  color: var(--color-ink);
 }
