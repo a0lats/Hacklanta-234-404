@@ -166,7 +166,12 @@ _SELFTEST = {"at": 0.0, "result": None}
 
 
 def _clean(err: Exception) -> str:
-    msg = f"{type(err).__name__}: {err}"[:200]
+    status = getattr(err, "status_code", None)
+    body = getattr(err, "body", None)
+    if status is not None:  # ElevenLabs ApiError: show the status and its reason, not headers
+        msg = f"{type(err).__name__} {status}: {body}"[:300]
+    else:
+        msg = f"{type(err).__name__}: {err}"[:300]
     for k in ("GEMINI_API_KEY", "ELEVENLABS_API_KEY"):
         v = os.getenv(k)
         if v:

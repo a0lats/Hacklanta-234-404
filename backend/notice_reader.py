@@ -74,7 +74,7 @@ def _call_gemini(image_bytes: bytes, mime_type: str) -> dict:
 
     client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     resp = client.models.generate_content(
-        model=os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
+        model=os.environ.get("GEMINI_MODEL", "gemini-3.8-flash"),
         contents=[
             types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
             PROMPT.format(keys=", ".join(FIELDS)),
