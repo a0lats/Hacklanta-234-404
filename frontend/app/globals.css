@@ -38,8 +38,19 @@ body {
   to { background-size: 100% 100%; }
 }
 
+/* Loading: a short bar that slides slowly. No fake percentage. */
+.loading-bar {
+  animation: slide 1.6s ease-in-out infinite alternate;
+}
+
+@keyframes slide {
+  from { transform: translateX(-10%); }
+  to { transform: translateX(210%); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .highlight { animation: none; }
+  .loading-bar { animation: none; width: 100%; opacity: 0.5; }
 }
 
 :focus-visible {

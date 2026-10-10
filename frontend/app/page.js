@@ -1,10 +1,13 @@
 "use client"; // runs on the phone: camera, audio and downloads
 
 import { useEffect, useRef, useState } from "react";
-import { STRINGS, VOICE_FOR } from "@/lib/strings";
+import { STRINGS, VOICE_FOR, LOCALE } from "@/lib/strings";
 import { SAMPLE_FIELDS } from "@/lib/fake";
 import { DEMO, readNotice, checkNotice, explainNotice, speak, getDefenses, makeAnswer, getLegalAid, closedLabel } from "@/lib/api";
-import { Shell, BigButton, Loading, CheckCard, Field, inputClass, ErrorNote } from "@/components/ui";
+import { Shell, BigButton, Loading, CheckCard, Field, Icon, inputClass, ErrorNote } from "@/components/ui";
+
+const EMPTY_EXTRAS = { monthly_rent: null, locked_out: null, utilities_cut: false, rent_period: null };
+const todayIso = () => new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD, local
 
 // Screens: 0 Home → 1 Check the details → 2 Deadline → 3 Answer → 4 Help.
 // Everything lives in memory. Refreshing the page erases it. Nothing is saved.
@@ -16,37 +19,47 @@ export default function SevenDays() {
   const [fields, setFields] = useState(null);
   const [unclear, setUnclear] = useState([]);
   const [readFailed, setReadFailed] = useState(false);
-  const [extras, setExtras] = useState({ monthly_rent: null, locked_out: false, utilities_cut: false, rent_period: null });
+  const [extras, setExtras] = useState(EMPTY_EXTRAS);
   const [result, setResult] = useState(null);
   const [defenses, setDefenses] = useState([]);
   const [picked, setPicked] = useState([]);
   const [ownWords, setOwnWords] = useState("");
   const [phone, setPhone] = useState("");
-  const [pdfUrl, setPdfUrl] = useState(null);
+  const [downloaded, setDownloaded] = useState(false);
   const [places, setPlaces] = useState([]);
-  const [busy, setBusy] = useState(null);
+  const [busy, setBusy] = useState(null); // { message, sub } while waiting
   const [error, setError] = useState(null);
+  const lastTask = useRef(null);
 
   const t = STRINGS[lang];
   const isLagos = place === "lagos";
+
+  // Keep <html lang> in step with the chosen language for screen readers.
+  useEffect(() => {
+    document.documentElement.lang = lang === "es" ? "es" : lang === "pcm" ? "pcm" : "en";
+  }, [lang]);
 
   function choosePlace(p) {
     setPlace(p);
     setLang("en");
   }
 
-  async function run(message, task) {
+  // Runs a backend call with a waiting screen. On failure, the person's work
+  // stays on screen and "Try again" repeats the same call.
+  async function run(wait, task) {
+    lastTask.current = { wait, task };
     setError(null);
-    setBusy(message);
+    if (wait) setBusy(wait); // quick steps (wait = null) skip the waiting screen
     try {
       await task();
     } catch (err) {
-      console.error(err);
+      console.warn(err);
       setError(t.error);
     } finally {
       setBusy(null);
     }
   }
+  const retry = () => lastTask.current && run(lastTask.current.wait, lastTask.current.task);
 
   // ---------- actions ----------
 
@@ -55,7 +68,7 @@ export default function SevenDays() {
     e.target.value = "";
     if (!file) return;
     setPhotoUrl(URL.createObjectURL(file));
-    run(t.reading, async () => {
+    run({ message: t.reading, sub: t.readingSub }, async () => {
       const r = await readNotice(file, place);
       setFields({ ...r.fields, jurisdiction: place });
       setUnclear(r.unclear || []);
@@ -73,13 +86,17 @@ export default function SevenDays() {
     setStep(1);
   }
 
-  const canConfirm = isLagos
-    ? fields?.notice_date && fields?.vacate_by && extras.rent_period
-    : Boolean(fields?.served_on);
+  // Field checks on the Check screen. Dates are never silently replaced.
+  const errors = {};
+  if (fields && !isLagos && fields.served_on && fields.served_on > todayIso()) errors.served_on = t.errFuture;
+  if (fields && isLagos && fields.notice_date && fields.vacate_by && fields.vacate_by < fields.notice_date)
+    errors.vacate_by = t.errLeaveBeforeNotice;
+  const hasDates = isLagos ? fields?.notice_date && fields?.vacate_by && extras.rent_period : Boolean(fields?.served_on);
+  const canConfirm = hasDates && Object.keys(errors).length === 0;
 
   function confirmFields() {
-    run(t.checking, async () => {
-      setResult(await checkNotice(fields, extras));
+    run(isLagos ? { message: t.checkingLagos } : { message: t.checking, sub: t.checkingSub }, async () => {
+      setResult(await checkNotice(fields, { ...extras, locked_out: Boolean(extras.locked_out) }));
       setStep(2);
     });
   }
@@ -92,20 +109,21 @@ export default function SevenDays() {
   }
 
   function download() {
-    run(t.makingPdf, async () => {
+    setDownloaded(false);
+    run({ message: t.makingPdf, sub: t.makingPdfSub }, async () => {
       const blob = await makeAnswer({
         fields,
-        extras,
+        extras: { ...extras, locked_out: Boolean(extras.locked_out) },
         tenant: { phone: phone || null },
         selected_defenses: picked,
         own_words: ownWords,
       });
       const url = URL.createObjectURL(blob);
-      setPdfUrl(url);
       const a = document.createElement("a");
       a.href = url;
       a.download = isLagos ? "reply-letter-draft.pdf" : "answer-draft.pdf";
       a.click();
+      setDownloaded(true);
     });
   }
 
@@ -124,19 +142,21 @@ export default function SevenDays() {
     setPicked([]);
     setOwnWords("");
     setPhone("");
-    setPdfUrl(null);
+    setDownloaded(false);
     setError(null);
-    setExtras({ monthly_rent: null, locked_out: false, utilities_cut: false, rent_period: null });
+    setExtras(EMPTY_EXTRAS);
   }
 
   const shell = { t, lang, setLang, place, step, demo: DEMO };
+  const errorNote = <ErrorNote message={error} onRetry={retry} retryLabel={t.retry} />;
+  const deadline = result?.deadline;
 
   // ---------- screens ----------
 
   if (busy) {
     return (
       <Shell {...shell}>
-        <Loading message={busy} />
+        <Loading message={busy.message} sub={busy.sub} />
       </Shell>
     );
   }
@@ -157,30 +177,33 @@ export default function SevenDays() {
         }
       >
         <fieldset>
-          <legend className="text-sm font-semibold text-ink-soft">{t.whereIsHome}</legend>
-          <div className="mt-2 grid grid-cols-2 gap-2">
+          <legend className="text-[15px] font-semibold text-ink">{t.whereIsHome}</legend>
+          <div className="mt-2.5 grid grid-cols-2 gap-2">
             {[["atlanta", t.atlanta], ["lagos", t.lagos]].map(([value, label]) => (
               <button
                 key={value}
                 type="button"
                 onClick={() => choosePlace(value)}
                 aria-pressed={place === value}
-                className={`rounded-xl border-2 px-3 py-3 text-base font-semibold ${
-                  place === value ? "border-ink bg-ink text-white" : "border-line text-ink"
+                className={`flex min-h-14 items-center justify-center gap-2 rounded-xl border-2 px-3 text-base font-semibold ${
+                  place === value ? "border-ink bg-ink text-white" : "border-line text-ink hover:border-ink"
                 }`}
               >
+                {place === value && <Icon name="check" className="h-4 w-4" />}
                 {label}
               </button>
             ))}
           </div>
         </fieldset>
 
-        <h1 className="mt-8 text-[2rem] leading-[1.1] font-extrabold tracking-tight text-ink">
+        <h1 className="mt-9 text-[2.1rem] leading-[1.08] font-extrabold tracking-tight text-balance text-ink">
           {isLagos ? t.homeTitleLagos : t.homeTitle}
         </h1>
         <p className="mt-4 text-lg leading-relaxed text-ink">{isLagos ? t.homeBodyLagos : t.homeBody}</p>
-        <p className="mt-6 text-sm leading-relaxed text-ink-soft">{t.privacy}</p>
-        <ErrorNote message={error} />
+        <p className="mt-6 flex items-start gap-2 text-[15px] leading-relaxed text-ink-soft">
+          <Icon name="lock" className="mt-0.5 h-4 w-4 shrink-0" /> {t.privacy}
+        </p>
+        {errorNote}
       </Shell>
     );
   }
@@ -189,75 +212,91 @@ export default function SevenDays() {
   if (step === 1) {
     const set = (k) => (e) => setFields((f) => ({ ...f, [k]: e.target.value || null }));
     const flag = (k) => unclear.includes(k);
+    const describedBy = (id, hint) => [hint && `${id}-hint`, errors[id] && `${id}-error`].filter(Boolean).join(" ") || undefined;
+    const fieldInput = (id, extra = {}) => ({
+      id,
+      className: `${inputClass} ${flag(id) ? "border-mark" : ""} ${errors[id] ? "border-urgent" : ""}`,
+      "aria-invalid": errors[id] ? true : undefined,
+      ...extra,
+    });
+
     return (
       <Shell
         {...shell}
         footer={
           <>
-            {!canConfirm && <p className="mb-2 text-center text-sm text-ink-soft">{isLagos ? t.needLagosDates : t.needServedDate}</p>}
+            {!hasDates && <p className="mb-2.5 text-center text-sm text-ink">{isLagos ? t.needLagosDates : t.needServedDate}</p>}
             <BigButton onClick={confirmFields} disabled={!canConfirm}>{t.confirm}</BigButton>
           </>
         }
       >
-        <h1 className="text-2xl font-extrabold tracking-tight">{t.confirmTitle}</h1>
-        <p className="mt-2 text-ink-soft">{readFailed ? t.couldNotRead : t.confirmBody}</p>
+        <h1 className="text-[1.65rem] leading-tight font-extrabold tracking-tight">{t.confirmTitle}</h1>
+        <p className={`mt-2 text-[15px] leading-relaxed ${readFailed ? "font-semibold text-ink" : "text-ink-soft"}`}>
+          {readFailed ? t.couldNotRead : t.confirmBody}
+        </p>
 
         {photoUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={photoUrl} alt="" className="mt-4 max-h-56 w-full rounded-xl border border-line object-contain bg-page" />
+          <a href={photoUrl} target="_blank" rel="noreferrer" aria-label={t.photoLabel} className="mt-4 block">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={photoUrl} alt="" className="h-36 w-full rounded-xl border border-line bg-page object-contain" />
+          </a>
         )}
 
         <div className="mt-6 space-y-5">
           {isLagos ? (
             <>
-              <Field label={t.fields.notice_date} flagged={flag("notice_date")} flagText={t.unsure}>
-                <input type="date" className={inputClass} value={fields.notice_date ?? ""} onChange={set("notice_date")} />
+              <Field id="notice_date" label={t.fields.notice_date} flagged={flag("notice_date")} flagText={t.unsure}>
+                <input type="date" {...fieldInput("notice_date")} value={fields.notice_date ?? ""} onChange={set("notice_date")} aria-describedby={describedBy("notice_date")} />
               </Field>
-              <Field label={t.fields.vacate_by} flagged={flag("vacate_by")} flagText={t.unsure}>
-                <input type="date" className={inputClass} value={fields.vacate_by ?? ""} onChange={set("vacate_by")} />
+              <Field id="vacate_by" label={t.fields.vacate_by} flagged={flag("vacate_by")} flagText={t.unsure} error={errors.vacate_by}>
+                <input type="date" {...fieldInput("vacate_by")} value={fields.vacate_by ?? ""} onChange={set("vacate_by")} aria-describedby={describedBy("vacate_by")} />
               </Field>
-              <Field label={t.fields.rent_period}>
+              <Field id="rent_period" label={t.fields.rent_period}>
                 <select
+                  id="rent_period"
                   className={inputClass}
                   value={extras.rent_period ?? ""}
                   onChange={(e) => setExtras((x) => ({ ...x, rent_period: e.target.value || null }))}
                 >
-                  <option value="">—</option>
+                  <option value="">{t.choose}</option>
                   {Object.entries(t.rentPeriods).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
               </Field>
-              <Field label={t.fields.landlord_name} flagged={flag("landlord_name")} flagText={t.unsure}>
-                <input className={inputClass} value={fields.landlord_name ?? ""} onChange={set("landlord_name")} />
+              <Field id="landlord_name" label={t.fields.landlord_name} flagged={flag("landlord_name")} flagText={t.unsure}>
+                <input {...fieldInput("landlord_name")} value={fields.landlord_name ?? ""} onChange={set("landlord_name")} />
               </Field>
             </>
           ) : (
             <>
-              <Field label={t.fields.served_on} hint={t.fields.served_on_hint} flagged={flag("served_on")} flagText={t.unsure}>
-                <input type="date" className={`${inputClass} ${!fields.served_on ? "border-mark" : ""}`} value={fields.served_on ?? ""} onChange={set("served_on")} />
+              <Field id="served_on" label={t.fields.served_on} hint={t.fields.served_on_hint} flagged={flag("served_on")} flagText={t.unsure} error={errors.served_on}>
+                <input type="date" {...fieldInput("served_on")} value={fields.served_on ?? ""} onChange={set("served_on")} aria-describedby={describedBy("served_on", true)} />
               </Field>
-              <Field label={t.fields.landlord_name} flagged={flag("landlord_name")} flagText={t.unsure}>
-                <input className={inputClass} value={fields.landlord_name ?? ""} onChange={set("landlord_name")} />
+              <Field id="landlord_name" label={t.fields.landlord_name} flagged={flag("landlord_name")} flagText={t.unsure}>
+                <input {...fieldInput("landlord_name")} value={fields.landlord_name ?? ""} onChange={set("landlord_name")} />
               </Field>
-              <Field label={t.fields.amount_claimed} flagged={flag("amount_claimed")} flagText={t.unsure}>
+              <Field id="amount_claimed" label={t.fields.amount_claimed} flagged={flag("amount_claimed")} flagText={t.unsure}>
                 <input
                   inputMode="decimal"
-                  className={inputClass}
+                  {...fieldInput("amount_claimed")}
                   value={fields.amount_claimed ?? ""}
                   onChange={(e) => setFields((f) => ({ ...f, amount_claimed: e.target.value === "" ? null : Number(e.target.value) }))}
                 />
               </Field>
-              <Field label={t.fields.court} flagged={flag("court")} flagText={t.unsure}>
-                <input className={inputClass} value={fields.court ?? ""} onChange={set("court")} />
+              <Field id="court" label={t.fields.court} flagged={flag("court")} flagText={t.unsure}>
+                <input {...fieldInput("court")} value={fields.court ?? ""} onChange={set("court")} />
               </Field>
-              <Field label={t.fields.case_number} flagged={flag("case_number")} flagText={t.unsure}>
-                <input className={inputClass} value={fields.case_number ?? ""} onChange={set("case_number")} />
+              <Field id="case_number" label={t.fields.case_number} flagged={flag("case_number")} flagText={t.unsure}>
+                <input {...fieldInput("case_number")} value={fields.case_number ?? ""} onChange={set("case_number")} />
               </Field>
 
-              <div className="border-t border-line pt-5">
-                <p className="text-sm font-semibold text-ink-soft">{t.quickQuestions}</p>
+              <section className="border-t border-line pt-6" aria-labelledby="quick-q">
+                <h2 id="quick-q" className="text-base font-bold">
+                  {t.quickQuestions} <span className="font-normal text-ink-soft">({t.optional})</span>
+                </h2>
                 <div className="mt-4 space-y-5">
-                  <Field label={t.monthlyRent}>
+                  <Field id="monthly_rent" label={t.monthlyRent} optional={t.optional}>
                     <input
+                      id="monthly_rent"
                       inputMode="decimal"
                       className={inputClass}
                       value={extras.monthly_rent ?? ""}
@@ -272,33 +311,46 @@ export default function SevenDays() {
                     onChange={(v) => setExtras((x) => ({ ...x, locked_out: v, utilities_cut: v }))}
                   />
                 </div>
-              </div>
+              </section>
             </>
           )}
         </div>
-        <ErrorNote message={error} />
+        {errorNote}
       </Shell>
     );
   }
 
   // 2. Deadline
   if (step === 2 && result) {
+    const translate = (c) => {
+      const tr = t.cards[c.id];
+      return tr ? { title: tr.title, body: tr.body({ fields, extras, result }) } : { title: c.title, body: c.body };
+    };
+    const rank = { red: 0, amber: 1, info: 2 };
     return (
       <Shell
         {...shell}
         footer={<BigButton onClick={toAnswer}>{isLagos ? t.startReply : t.startAnswer}</BigButton>}
       >
-        {isLagos ? <LagosVerdict t={t} check={result.notice_check} /> : <Countdown t={t} d={result.deadline} lang={lang} />}
+        {isLagos ? (
+          <LagosVerdict t={t} check={result.notice_check} />
+        ) : (
+          <Countdown t={t} d={deadline} lang={lang} onHelp={toHelp} />
+        )}
 
         <Listen key={lang} t={t} fields={fields} extras={extras} lang={lang} />
 
-        <h2 className="mt-9 text-lg font-bold">{t.thingsToCheck}</h2>
-        <ul className="mt-3 space-y-3">
-          {[...result.cards]
-            .sort((a, b) => ({ red: 0, amber: 1, info: 2 }[a.level] - { red: 0, amber: 1, info: 2 }[b.level]))
-            .map((c) => <CheckCard key={c.id} card={c} />)}
-        </ul>
-        <ErrorNote message={error} />
+        <section className="mt-10" aria-labelledby="checks">
+          <h2 id="checks" className="text-lg font-bold">{t.thingsToCheck}</h2>
+          <ul className="mt-3 space-y-3">
+            {result.cards
+              // the hero already says these two; don't repeat them as cards
+              .filter((c) => !["deadline_missed", "due_today"].includes(c.id))
+              .sort((a, b) => (rank[a.level] ?? 3) - (rank[b.level] ?? 3))
+              .map((c) => <CheckCard key={c.id} level={c.level} {...translate(c)} />)}
+          </ul>
+        </section>
+        {errorNote}
       </Shell>
     );
   }
@@ -310,45 +362,71 @@ export default function SevenDays() {
         {...shell}
         footer={
           <div className="space-y-3">
-            <BigButton onClick={download}>{isLagos ? t.downloadReply : t.downloadAnswer}</BigButton>
-            {pdfUrl && <BigButton variant="help" onClick={toHelp}>{t.next}</BigButton>}
+            <BigButton variant={downloaded ? "secondary" : "primary"} onClick={download}>
+              {isLagos ? t.downloadReply : t.downloadAnswer}
+            </BigButton>
+            {downloaded && (
+              <BigButton variant="help" onClick={toHelp}>
+                {t.next} <Icon name="arrow" />
+              </BigButton>
+            )}
           </div>
         }
       >
-        <h1 className="text-2xl font-extrabold tracking-tight">{isLagos ? t.startReply : t.answerTitle}</h1>
+        <h1 className="text-[1.65rem] leading-tight font-extrabold tracking-tight">{isLagos ? t.startReply : t.answerTitle}</h1>
+        {!isLagos && deadline && deadline.status !== "missed" && (
+          <p className="mt-3 inline-flex flex-wrap items-baseline gap-x-1.5 rounded-lg bg-page px-3 py-2 text-[15px]">
+            {t.dueBy} <strong className="highlight">{longDate(deadline.deadline, lang)}, {deadline.deadline_time}</strong>
+          </p>
+        )}
+
         {!isLagos && (
           <>
-            <p className="mt-2 text-ink-soft">{t.answerBody}</p>
-            <ul className="mt-5 space-y-2">
-              {defenses.map((d) => {
-                const on = picked.includes(d.id);
-                return (
-                  <li key={d.id}>
-                    <label className={`flex cursor-pointer gap-3 rounded-xl border-2 px-3.5 py-3 ${on ? "border-ink bg-page" : "border-line"}`}>
-                      <input
-                        type="checkbox"
-                        className="mt-1 h-5 w-5 shrink-0 accent-[#15233f]"
-                        checked={on}
-                        onChange={() => setPicked((p) => (on ? p.filter((x) => x !== d.id) : [...p, d.id]))}
-                      />
-                      <span className="text-[15px] leading-snug">{d.text}</span>
-                    </label>
-                  </li>
-                );
-              })}
-            </ul>
-            <div className="mt-6 space-y-5">
-              <Field label={t.ownWords}>
-                <textarea rows={3} className={inputClass} value={ownWords} onChange={(e) => setOwnWords(e.target.value)} />
+            <p className="mt-5 text-lg font-semibold leading-snug">{t.answerBody}</p>
+            <p className="mt-1.5 text-[15px] leading-relaxed text-ink-soft">{t.answerSupport}</p>
+            <fieldset className="mt-5">
+              <legend className="sr-only">{t.answerTitle}</legend>
+              <ul className="space-y-2">
+                {defenses.map((d) => {
+                  const on = picked.includes(d.id);
+                  return (
+                    <li key={d.id}>
+                      <label className={`flex min-h-14 cursor-pointer gap-3 rounded-xl border-2 px-3.5 py-3 ${on ? "border-ink bg-page" : "border-line hover:border-ink-soft"}`}>
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 h-5 w-5 shrink-0 accent-[#15233f]"
+                          checked={on}
+                          onChange={() => setPicked((p) => (on ? p.filter((x) => x !== d.id) : [...p, d.id]))}
+                        />
+                        <span className="text-[15px] leading-snug">{t.defenses[d.id] ?? d.text}</span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            </fieldset>
+            <div className="mt-7 space-y-5">
+              <Field id="own_words" label={t.ownWords} optional={t.optional}>
+                <textarea id="own_words" rows={4} className={inputClass} placeholder={t.ownWordsPlaceholder} value={ownWords} onChange={(e) => setOwnWords(e.target.value)} />
               </Field>
-              <Field label={t.yourPhone}>
-                <input type="tel" className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} />
+              <Field id="phone" label={t.yourPhone} optional={t.optional} hint={t.phoneHint}>
+                <input id="phone" type="tel" autoComplete="tel" className={inputClass} value={phone} onChange={(e) => setPhone(e.target.value)} aria-describedby="phone-hint" />
               </Field>
             </div>
+            {t.draftLanguage && <p className="mt-4 text-sm text-ink-soft">{t.draftLanguage}</p>}
           </>
         )}
-        <p className="mt-6 rounded-xl bg-page px-4 py-3 text-[15px] leading-relaxed">{t.answerNote}</p>
-        <ErrorNote message={error} />
+
+        <p className="mt-6 flex items-start gap-2.5 rounded-xl border border-line px-4 py-3 text-[15px] leading-relaxed">
+          <Icon name="info" className="mt-0.5 h-5 w-5 shrink-0 text-ink-soft" />
+          {isLagos ? t.replyReminder : t.filingReminder}
+        </p>
+        {downloaded && (
+          <p className="mt-4 flex items-center gap-2 font-semibold text-help" role="status">
+            <Icon name="check" /> {t.downloaded}
+          </p>
+        )}
+        {errorNote}
       </Shell>
     );
   }
@@ -356,42 +434,58 @@ export default function SevenDays() {
   // 4. Help
   return (
     <Shell {...shell} footer={<BigButton variant="secondary" onClick={startOver}>{t.startOver}</BigButton>}>
-      <h1 className="text-2xl font-extrabold tracking-tight">{t.helpTitle}</h1>
-      {!isLagos && result?.deadline && (
-        <p className="mt-3 text-lg">
-          {t.answerBy} <span className="highlight font-bold">{longDate(result.deadline.deadline, lang)}, {result.deadline.deadline_time}</span>
+      <h1 className="text-[1.65rem] leading-tight font-extrabold tracking-tight text-balance">{isLagos ? t.helpTitleLagos : t.helpTitle}</h1>
+      {!isLagos && deadline && deadline.status !== "missed" && (
+        <p className="mt-4 text-lg leading-snug">
+          {t.answerBy} <strong className="highlight">{longDate(deadline.deadline, lang)}, {deadline.deadline_time}</strong>
         </p>
       )}
-      <p className="mt-2 text-ink-soft">{t.helpBody}</p>
+      <p className="mt-3 text-[15px] leading-relaxed text-ink">{t.helpBody}</p>
+
       <ul className="mt-6 space-y-3">
         {places.map((p) => (
           <li key={p.name} className="rounded-xl border-2 border-help-soft px-4 py-4">
-            <p className="font-bold text-ink">{p.name}</p>
+            <p className="text-[17px] font-bold leading-snug text-ink">{p.name}</p>
             {p.address && <p className="mt-1 text-[15px]">{p.address}</p>}
             {p.phone && (
-              <a href={`tel:${p.phone}`} className="mt-1 block font-semibold text-help underline">{p.phone}</a>
-            )}
-            {p.website && (
-              <a href={p.website} target="_blank" rel="noreferrer" className="mt-2 inline-block font-semibold text-help underline">
-                {t.visitSite}
+              <a href={`tel:${p.phone}`} className="mt-2 inline-flex min-h-11 items-center font-semibold text-help underline underline-offset-4">
+                {p.phone}
               </a>
             )}
-            {p.verify && <p className="mt-2 text-xs text-ink-soft">{t.checkDetails}</p>}
+            {p.website && (
+              <a
+                href={p.website}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={t.visitSiteLabel(p.name)}
+                className="mt-1 flex min-h-11 items-center gap-1.5 font-semibold text-help underline underline-offset-4"
+              >
+                {t.visitSite(p.name)} <Icon name="arrow" className="h-4 w-4" />
+              </a>
+            )}
+            {p.verify && <p className="mt-1 text-sm text-ink-soft">{t.checkDetails}</p>}
           </li>
         ))}
       </ul>
       {!isLagos && <p className="mt-6 text-[15px] leading-relaxed">{t.fileWhere}</p>}
-      <ErrorNote message={error} />
+      <p className="mt-6 text-sm text-ink-soft">{t.startOverNote}</p>
+      {errorNote}
     </Shell>
   );
 }
 
 // ---------- pieces used above ----------
 
+function longDate(isoDate, lang) {
+  return new Date(`${isoDate}T00:00:00Z`).toLocaleDateString(LOCALE[lang] || "en-US", {
+    weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "UTC",
+  });
+}
+
 function YesNo({ label, yes, no, value, onChange }) {
   return (
     <fieldset>
-      <legend className="text-sm font-semibold text-ink">{label}</legend>
+      <legend className="text-[15px] font-semibold text-ink">{label}</legend>
       <div className="mt-2 grid grid-cols-2 gap-2">
         {[[true, yes], [false, no]].map(([v, l]) => (
           <button
@@ -399,8 +493,11 @@ function YesNo({ label, yes, no, value, onChange }) {
             type="button"
             aria-pressed={value === v}
             onClick={() => onChange(v)}
-            className={`rounded-xl border-2 py-2.5 font-semibold ${value === v ? "border-ink bg-ink text-white" : "border-line"}`}
+            className={`flex min-h-12 items-center justify-center gap-1.5 rounded-xl border-2 font-semibold ${
+              value === v ? "border-ink bg-ink text-white" : "border-line hover:border-ink"
+            }`}
           >
+            {value === v && <Icon name="check" className="h-4 w-4" />}
             {l}
           </button>
         ))}
@@ -409,85 +506,126 @@ function YesNo({ label, yes, no, value, onChange }) {
   );
 }
 
-const LOCALE = { en: "en-US", es: "es-US", pcm: "en-NG" };
-function longDate(isoDate, lang) {
-  return new Date(`${isoDate}T00:00:00Z`).toLocaleDateString(LOCALE[lang] || "en-US", {
-    weekday: "long", month: "long", day: "numeric", year: "numeric", timeZone: "UTC",
-  });
-}
-
-// The big number with the highlighter swipe, then the date, then the 7-day strip.
-function Countdown({ t, d, lang }) {
+// The deadline hero: the number with the highlighter, the date, how it was
+// counted, and what it means. Three states: open, due today, possibly missed.
+function Countdown({ t, d, lang, onHelp }) {
   if (!d) return null;
-  const urgent = d.status !== "open";
   return (
-    <section aria-live="polite">
-      {d.status === "missed" ? (
-        <h1 className="text-3xl leading-tight font-extrabold text-urgent">{t.missed}</h1>
-      ) : (
-        <h1 className="flex items-baseline gap-3">
-          <span className={`highlight text-[7.5rem] leading-none font-extrabold tracking-tighter tabular-nums ${urgent ? "text-urgent" : "text-ink"}`}>
-            {d.days_left}
-          </span>
-          <span className="text-2xl font-bold">{d.status === "due_today" ? t.dueToday : t.daysLeft(d.days_left)}</span>
-        </h1>
+    <section aria-labelledby="deadline-heading" aria-live="polite">
+      <p className="text-[15px] font-semibold text-ink-soft">{t.yourDeadline}</p>
+
+      {d.status === "missed" && (
+        <>
+          <h1 id="deadline-heading" className="mt-2 flex items-start gap-2.5 text-[1.75rem] leading-tight font-extrabold">
+            <span className="mt-1 text-urgent"><Icon name="alert" className="h-7 w-7" /></span>
+            {t.missed}
+          </h1>
+          <p className="mt-3 text-lg leading-relaxed">{t.missedBody}</p>
+          <div className="mt-5">
+            <BigButton variant="help" onClick={onHelp}>{t.getHelpNow}</BigButton>
+          </div>
+        </>
       )}
-      <p className="mt-4 text-xl leading-snug">
-        {t.answerBy} <strong>{longDate(d.deadline, lang)}</strong>, {d.deadline_time}
-      </p>
-      <DayStrip t={t} d={d} lang={lang} />
+
+      {d.status === "due_today" && (
+        <>
+          <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-urgent px-3 py-1 text-sm font-bold text-white">
+            <Icon name="alert" className="h-4 w-4" /> {t.dueTodayBadge}
+          </p>
+          <h1 id="deadline-heading" className="mt-3">
+            <span className="highlight text-[clamp(3rem,17vw,4.5rem)] leading-none font-extrabold tracking-tight whitespace-nowrap tabular-nums">
+              {d.deadline_time}
+            </span>
+          </h1>
+          <p className="mt-4 text-xl leading-snug">{t.dueTodayBody}</p>
+        </>
+      )}
+
+      {d.status === "open" && (
+        <>
+          <h1 id="deadline-heading" className="mt-1 flex items-end gap-3">
+            <span className="highlight text-[clamp(5.5rem,27vw,7rem)] leading-[0.95] font-extrabold tracking-tighter tabular-nums">
+              {d.days_left}
+            </span>
+            <span className="pb-3 text-2xl font-bold">{t.daysLeft(d.days_left)}</span>
+          </h1>
+          <p className="mt-5 text-xl leading-snug">
+            {t.answerBy} <strong>{longDate(d.deadline, lang)}</strong>
+          </p>
+          <p className="text-[1.65rem] font-extrabold tracking-tight">{d.deadline_time}</p>
+        </>
+      )}
+
+      {d.status !== "missed" && <DayStrip t={t} d={d} lang={lang} />}
+      {d.status !== "missed" && <p className="mt-5 text-[15px] leading-relaxed text-ink">{t.deadlineMeans}</p>}
     </section>
   );
 }
 
-// Every day from service to deadline. Shows that weekends count, and why the
-// deadline moved when day 7 lands on a closed day.
+// Every day from service to deadline, so people can see the weekends count and
+// why the deadline moved. Only shows what the deadline logic returned.
 function DayStrip({ t, d, lang }) {
-  const days = [];
   const start = new Date(`${d.served_on}T00:00:00Z`);
   const end = new Date(`${d.deadline}T00:00:00Z`);
+  const days = [];
   for (let x = start; x <= end; x = new Date(x.getTime() + 86400000)) days.push(x);
-  if (days.length > 14) return null;
-  const fmt = (x, o) => x.toLocaleDateString(LOCALE[lang] || "en-US", { ...o, timeZone: "UTC" });
+  if (days.length > 15) return null;
+  const locale = LOCALE[lang] || "en-US";
+  const fmt = (x, o) => x.toLocaleDateString(locale, { ...o, timeZone: "UTC" });
+  const seventh = new Date(`${d.seventh_day}T00:00:00Z`);
+  const seventhClosed = closedLabel(d.seventh_day);
+  const closedName = seventhClosed && ["Saturday", "Sunday"].includes(seventhClosed) ? fmt(seventh, { weekday: "long" }) : seventhClosed;
+
   return (
-    <ol className="mt-6 grid grid-cols-7 gap-1" aria-label="Days from service to deadline">
-      {days.map((x, i) => {
-        const iso = x.toISOString().slice(0, 10);
-        const isDue = iso === d.deadline;
-        const isServed = i === 0;
-        const afterSeven = iso > d.seventh_day;
-        const closed = !isServed && !isDue && (afterSeven || iso === d.seventh_day) && closedLabel(iso);
-        return (
-          <li
-            key={iso}
-            title={closed ? `${t.closedDay}: ${closed}` : undefined}
-            className={`flex flex-col items-center rounded-lg py-1.5 text-center ${
-              isDue ? "bg-mark font-bold" : closed ? "bg-page text-ink-soft line-through" : isServed ? "bg-ink text-white" : "bg-page"
-            }`}
-          >
-            <span className="text-[10px]">{fmt(x, { weekday: "short" })}</span>
-            <span className="text-base tabular-nums">{fmt(x, { day: "numeric" })}</span>
-            <span className="text-[9px] leading-tight">{isServed ? t.servedOn : isDue ? t.dueLabel : i <= 7 ? `${i}` : ""}</span>
-          </li>
-        );
-      })}
-    </ol>
+    <figure className="mt-7">
+      <figcaption className="text-[15px] font-semibold">{t.stripLabel}</figcaption>
+      <ol className="-mx-5 mt-3 flex snap-x gap-1.5 overflow-x-auto px-5 pb-2" aria-label={t.stripLabel}>
+        {days.map((x, i) => {
+          const iso = x.toISOString().slice(0, 10);
+          const isDue = iso === d.deadline;
+          const isServed = i === 0;
+          const closed = !isServed && !isDue && iso >= d.seventh_day;
+          const label = isServed ? t.servedOn : isDue ? t.dueLabel : i <= 7 ? `${t.day} ${i}` : "";
+          const style = isDue
+            ? "bg-mark text-ink font-bold"
+            : isServed
+              ? "bg-ink text-white"
+              : closed
+                ? "border border-dashed border-ink-soft/60 text-ink-soft"
+                : "bg-page text-ink";
+          return (
+            <li key={iso} className={`relative flex w-[3.4rem] shrink-0 snap-start flex-col items-center rounded-lg py-2 text-center ${style}`}>
+              <span className="text-[11px]">{fmt(x, { weekday: "short" })}</span>
+              <span className={`text-lg leading-tight tabular-nums ${closed ? "line-through" : ""}`}>{fmt(x, { day: "numeric" })}</span>
+              <span className="mt-0.5 text-[10px] leading-tight">{label}</span>
+              {closed && <span className="sr-only">{t.closedDay}</span>}
+            </li>
+          );
+        })}
+      </ol>
+      <p className="mt-2 text-[15px] leading-relaxed text-ink-soft">
+        {d.moved && closedName ? t.movedBecause(closedName) : t.weekendsCount}
+      </p>
+    </figure>
   );
 }
 
 function LagosVerdict({ t, check }) {
   if (!check) return null;
   return (
-    <section aria-live="polite">
-      <h1 className="flex items-baseline gap-3">
-        <span className={`highlight text-[7.5rem] leading-none font-extrabold tracking-tighter tabular-nums ${check.ok === false ? "text-urgent" : "text-ink"}`}>
+    <section aria-labelledby="notice-heading" aria-live="polite">
+      <p className="text-[15px] font-semibold text-ink-soft">{t.yourNotice}</p>
+      <h1 id="notice-heading" className="mt-1 flex items-end gap-3">
+        <span className="highlight text-[clamp(5.5rem,27vw,7rem)] leading-[0.95] font-extrabold tracking-tighter tabular-nums">
           {check.given_days}
         </span>
-        <span className="text-2xl font-bold">{t.days}</span>
+        <span className="pb-3 text-2xl font-bold">{t.days}</span>
       </h1>
-      <p className="mt-4 text-xl leading-snug">
+      <p className="mt-5 flex items-start gap-2 text-xl leading-snug">
+        {check.ok === false && <span className="mt-1 text-caution"><Icon name="option" /></span>}
         {check.ok === false ? t.lagosNoticeTitle(check.given_days, check.required_days) : t.lagosLooksOk}
       </p>
+      {!check.verified && <p className="mt-3 text-[15px] text-ink-soft">{t.lagosProvisional}</p>}
     </section>
   );
 }
@@ -508,11 +646,15 @@ function Listen({ t, fields, extras, lang }) {
       return;
     }
     setState("loading");
+    setNoAudio(false);
     try {
-      const ex = await explainNotice(fields, extras, lang);
+      const ex = await explainNotice(fields, { ...extras, locked_out: Boolean(extras.locked_out) }, lang);
       setText(ex.text);
       const blob = await speak(ex.text, VOICE_FOR[lang]);
-      if (!blob) return setState("idle");
+      if (!blob) {
+        setNoAudio(true);
+        return setState("idle");
+      }
       audio.current = new Audio(URL.createObjectURL(blob));
       audio.current.onended = () => setState("idle");
       await audio.current.play();
@@ -525,15 +667,20 @@ function Listen({ t, fields, extras, lang }) {
   }
 
   return (
-    <div className="mt-7">
-      <BigButton variant="secondary" onClick={toggle} disabled={state === "loading"}>
-        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-          {state === "playing" ? <path d="M7 5h4v14H7zM13 5h4v14h-4z" /> : <path d="M8 5v14l11-7z" />}
-        </svg>
+    <div className="mt-8">
+      <BigButton variant="secondary" onClick={toggle} disabled={state === "loading"} aria-pressed={state === "playing"}>
+        <Icon name={state === "playing" ? "pause" : "speaker"} />
         {state === "loading" ? t.listening : state === "playing" ? t.stop : t.listen}
       </BigButton>
-      {noAudio && <p className="mt-3 text-sm text-ink-soft">{t.noAudio}</p>}
-      {text && <p className="mt-3 rounded-xl bg-page px-4 py-3 text-[15px] leading-relaxed">{text}</p>}
+      <div aria-live="polite">
+        {noAudio && <p className="mt-3 text-[15px] text-ink-soft">{t.noAudio}</p>}
+        {text && (
+          <div className="mt-3 rounded-xl bg-page px-4 py-3">
+            <p className="text-sm font-semibold text-ink-soft">{t.captionsLabel}</p>
+            <p className="mt-1 text-[15px] leading-relaxed">{text}</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
