@@ -498,15 +498,27 @@ export default function SevenDays() {
           </>
         )}
 
-        <p className="mt-6 flex items-start gap-2.5 rounded-xl border border-line px-4 py-3 text-[15px] leading-relaxed">
-          <Icon name="info" className="mt-0.5 h-5 w-5 shrink-0 text-ink-soft" />
-          {isLagos ? t.replyReminder : t.filingReminder}
-        </p>
         {downloaded && (
-          <p className="mt-4 flex items-center gap-2 font-semibold text-help" role="status">
+          <p className="pop mt-6 flex items-center gap-2 font-semibold text-help" role="status">
             <Icon name="check" /> {t.downloaded}
           </p>
         )}
+        <section className="mt-6 rounded-2xl bg-page px-4 py-4" aria-labelledby="next-steps">
+          <h2 id="next-steps" className="text-lg font-bold">{t.nextStepsTitle}</h2>
+          <ol className="mt-3 space-y-3">
+            {(isLagos
+              ? t.nextStepsLagos
+              : t.nextStepsAtlanta(deadline && deadline.status !== "missed" ? `${longDate(deadline.deadline, lang)}, ${deadline.deadline_time}` : null)
+            ).map((line, i) => (
+              <li key={i} className="flex gap-3">
+                <span aria-hidden="true" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-paper text-sm font-bold tabular-nums">
+                  {i + 1}
+                </span>
+                <span className="pt-0.5 text-[15px] leading-relaxed">{line}</span>
+              </li>
+            ))}
+          </ol>
+        </section>
         {errorNote}
       </Shell>
     );
