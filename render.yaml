@@ -1,0 +1,30 @@
+# Render Blueprint for the 7 Days backend.
+# Render dashboard → New → Blueprint → pick this repo → fill in the secret values → Apply.
+services:
+  - type: web
+    name: seven-days-api
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.7"
+      - key: ALLOWED_ORIGINS
+        value: https://hacklanta-234-404-ten.vercel.app
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: VOICE_ID_ENGLISH
+        sync: false
+      - key: VOICE_ID_PIDGIN
+        sync: false
+      - key: VOICE_ID_SPANISH
+        sync: false
+      # Stage backup: set to 1 and /read-notice returns the sample notice instantly.
+      - key: DEMO_MODE
+        value: "0"
