@@ -181,9 +181,7 @@ def _clean(err: Exception) -> str:
 
 
 def _run_selftest():
-    import concurrent.futures
-
-    from notice_reader import _call_gemini
+    from notice_reader import gemini_read
 
     out = {"gemini": {"configured": bool(os.getenv("GEMINI_API_KEY"))},
            "voice": {"configured": bool(os.getenv("ELEVENLABS_API_KEY")),
@@ -193,16 +191,16 @@ def _run_selftest():
     try:
         if out["gemini"]["configured"]:
             img = (_Path(__file__).parent / "data" / "sample_notice_atlanta.png").read_bytes()
-            try:
-                t0 = _time.time()
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                    raw = ex.submit(_call_gemini, img, "image/png").result(timeout=60)
-                out["gemini"].update(ok=raw.get("served_on") == "2026-10-10",
-                                     served_on=raw.get("served_on"),
-                                     case_number=raw.get("case_number"),
-                                     seconds=round(_time.time() - t0, 1))
-            except Exception as e:  # noqa: BLE001
-                out["gemini"].update(ok=False, error=_clean(e), seconds=round(_time.time() - t0, 1))
+            t0 = _time.time()
+            raw, model, errors = gemini_read(img, "image/png", 30.0)
+            out["gemini"].update(
+                ok=bool(raw) and raw.get("served_on") == "2026-10-10",
+                model=model,
+                served_on=(raw or {}).get("served_on"),
+                case_number=(raw or {}).get("case_number"),
+                seconds=round(_time.time() - t0, 1),
+                errors=[_clean(Exception(e)) for e in errors],
+            )
 
         if out["voice"]["configured"] and out["voice"]["english_voice_set"]:
             try:
