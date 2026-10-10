@@ -20,6 +20,7 @@ from checks import run_checks  # noqa: E402
 from explain import explain as explain_notice  # noqa: E402
 from notice_reader import read_notice  # noqa: E402
 from speak import text_to_speech  # noqa: E402
+from summary_pdf import summary_pdf  # noqa: E402
 
 app = FastAPI(title="7 Days API")
 
@@ -149,6 +150,31 @@ async def answer_ep(req: AnswerRequest):
         name = "answer-draft.pdf"
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{name}"',
+                             "Cache-Control": "no-store"})
+
+
+class LagosForce(BaseModel):
+    locks: Optional[bool] = None
+    things: Optional[bool] = None
+    threats: Optional[bool] = None
+
+
+class SummaryRequest(AnswerRequest):
+    lagos_force: LagosForce = Field(default_factory=LagosForce)
+
+
+@app.post("/summary")
+async def summary_ep(req: SummaryRequest):
+    """One-page summary for legal aid. Made on the spot, never stored."""
+    fields = req.fields.model_dump()
+    extras = req.extras.model_dump()
+    chk = run_checks(fields, extras, today=_today(req.today))
+    valid = {k for k, _ in ATLANTA_DEFENSES}
+    picked = [d for d in req.selected_defenses if d in valid]
+    pdf = summary_pdf(fields, extras, chk, picked, req.own_words,
+                      req.tenant.model_dump(), req.lagos_force.model_dump())
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": 'attachment; filename="summary-for-legal-aid.pdf"',
                              "Cache-Control": "no-store"})
 
 

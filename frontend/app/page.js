@@ -3,10 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { STRINGS, VOICE_FOR, LOCALE } from "@/lib/strings";
 import { SAMPLE_FIELDS } from "@/lib/fake";
-import { DEMO, readNotice, checkNotice, explainNotice, speak, getDefenses, makeAnswer, getLegalAid, closedLabel } from "@/lib/api";
+import { DEMO, readNotice, checkNotice, explainNotice, speak, getDefenses, makeAnswer, makeSummary, getLegalAid, closedLabel } from "@/lib/api";
+import { deadlineIcs, saveBlob } from "@/lib/calendar";
+import { legalWords } from "@/lib/glossary";
 import { Shell, BigButton, Loading, CheckCard, Field, Icon, inputClass, ErrorNote } from "@/components/ui";
 
 const EMPTY_EXTRAS = { monthly_rent: null, locked_out: null, utilities_cut: false, rent_period: null };
+const EMPTY_FORCE = { locks: null, things: null, threats: null }; // Lagos: is the landlord forcing you out?
 const todayIso = () => new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD, local
 
 // Screens: 0 Home → 1 Check the details → 2 Deadline → 3 Answer → 4 Help.
@@ -27,6 +30,9 @@ export default function SevenDays() {
   const [phone, setPhone] = useState("");
   const [downloaded, setDownloaded] = useState(false);
   const [places, setPlaces] = useState([]);
+  const [force, setForce] = useState(EMPTY_FORCE);
+  const [calendarSaved, setCalendarSaved] = useState(false);
+  const [summarySaved, setSummarySaved] = useState(false);
   const [busy, setBusy] = useState(null); // { message, sub } while waiting
   const [error, setError] = useState(null);
   const lastTask = useRef(null);
@@ -118,12 +124,35 @@ export default function SevenDays() {
         selected_defenses: picked,
         own_words: ownWords,
       });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = isLagos ? "reply-letter-draft.pdf" : "answer-draft.pdf";
-      a.click();
+      saveBlob(blob, isLagos ? "reply-letter-draft.pdf" : "answer-draft.pdf");
       setDownloaded(true);
+    });
+  }
+
+  // The answer deadline as a calendar file, made on the phone. Never sent anywhere.
+  function addToCalendar() {
+    if (!deadline) return;
+    saveBlob(
+      deadlineIcs({ deadline: deadline.deadline, title: t.calTitle, notes: t.calNotes(fields), reminder: t.calReminder }),
+      `answer-deadline-${deadline.deadline}.ics`,
+    );
+    setCalendarSaved(true);
+  }
+
+  // One page for legal aid: dates, case, what the person ticked themselves.
+  function downloadSummary() {
+    setSummarySaved(false);
+    run({ message: t.makingSummary, sub: t.makingPdfSub }, async () => {
+      const blob = await makeSummary({
+        fields,
+        extras: { ...extras, locked_out: Boolean(extras.locked_out) },
+        tenant: { phone: phone || null },
+        selected_defenses: picked,
+        own_words: ownWords,
+        lagos_force: force,
+      });
+      saveBlob(blob, "summary-for-legal-aid.pdf");
+      setSummarySaved(true);
     });
   }
 
@@ -145,6 +174,9 @@ export default function SevenDays() {
     setDownloaded(false);
     setError(null);
     setExtras(EMPTY_EXTRAS);
+    setForce(EMPTY_FORCE);
+    setCalendarSaved(false);
+    setSummarySaved(false);
   }
 
   const shell = { t, lang, setLang, place, step, demo: DEMO };
@@ -366,8 +398,13 @@ export default function SevenDays() {
         ) : (
           <Countdown t={t} d={deadline} lang={lang} onHelp={toHelp} />
         )}
+        {!isLagos && deadline && deadline.status !== "missed" && (
+          <CalendarButton t={t} onClick={addToCalendar} saved={calendarSaved} />
+        )}
 
         <Listen key={lang} t={t} fields={fields} extras={extras} lang={lang} />
+
+        {isLagos && <ForceCheck t={t} force={force} setForce={setForce} />}
 
         <section className="mt-10" aria-labelledby="checks">
           <h2 id="checks" className="text-lg font-bold">{t.thingsToCheck}</h2>
@@ -379,6 +416,8 @@ export default function SevenDays() {
               .map((c, i) => <CheckCard key={c.id} index={i} level={c.level} {...translate(c)} />)}
           </ul>
         </section>
+
+        <LegalWords key={`${place}-${lang}`} t={t} place={place} lang={lang} />
         {errorNote}
       </Shell>
     );
@@ -470,6 +509,19 @@ export default function SevenDays() {
         </p>
       )}
       <p className="mt-3 text-[15px] leading-relaxed text-ink">{t.helpBody}</p>
+
+      <div className="mt-6 rounded-2xl bg-page p-4">
+        <BigButton variant="help" icon="file" onClick={downloadSummary}>{t.summaryButton}</BigButton>
+        <p className="mt-2.5 text-[15px] leading-relaxed text-ink">{t.summaryHint}</p>
+        {summarySaved && (
+          <p className="mt-2 flex items-center gap-2 font-semibold text-help" role="status">
+            <Icon name="check" className="pop h-5 w-5" /> {t.summarySaved}
+          </p>
+        )}
+      </div>
+      {!isLagos && deadline && deadline.status !== "missed" && (
+        <CalendarButton t={t} onClick={addToCalendar} saved={calendarSaved} />
+      )}
 
       <ul className="mt-6 space-y-3">
         {places.map((p, i) => (
@@ -679,7 +731,8 @@ function LagosVerdict({ t, check }) {
         {check.ok === false && <span className="mt-1 text-caution"><Icon name="option" /></span>}
         {check.ok === false ? t.lagosNoticeTitle(check.given_days, check.required_days) : t.lagosLooksOk}
       </p>
-      {!check.verified && <p className="mt-3 text-[15px] text-ink-soft">{t.lagosProvisional}</p>}
+      {check.required_days && <p className="mt-3 text-[15px] leading-relaxed text-ink">{t.lagosAgreement}</p>}
+      {!check.verified && <p className="mt-2 text-[15px] text-ink-soft">{t.lagosProvisional}</p>}
     </section>
   );
 }
@@ -736,5 +789,148 @@ function Listen({ t, fields, extras, lang }) {
         )}
       </div>
     </div>
+  );
+}
+
+// Saves the deadline as a calendar file with reminders. Made on the phone.
+function CalendarButton({ t, onClick, saved }) {
+  return (
+    <div className="mt-6">
+      <BigButton variant="secondary" icon="calendar" onClick={onClick}>{t.addToCalendar}</BigButton>
+      <p className="mt-2 text-sm text-ink-soft" aria-live="polite">
+        {saved ? (
+          <span className="flex items-center gap-1.5 font-semibold text-help">
+            <Icon name="check" className="pop h-4 w-4" /> {t.calendarSaved}
+          </span>
+        ) : (
+          t.calendarHint
+        )}
+      </p>
+    </div>
+  );
+}
+
+// Lagos: three yes/no questions. Any "yes" means the landlord may be breaking
+// the law, so we say so plainly and list what to do. Nothing is pre-chosen.
+function ForceCheck({ t, force, setForce }) {
+  const answers = Object.values(force);
+  const anyYes = answers.some((v) => v === true);
+  const allNo = answers.every((v) => v === false);
+  return (
+    <section className="mt-10 border-t border-line pt-7" aria-labelledby="force-heading">
+      <h2 id="force-heading" className="text-lg font-bold">{t.forceTitle}</h2>
+      <p className="mt-1 text-[15px] text-ink-soft">{t.forceSub}</p>
+      <div className="mt-4 space-y-5">
+        {Object.entries(t.forceQ).map(([k, q]) => (
+          <YesNo key={k} label={q} yes={t.yes} no={t.no} value={force[k]} onChange={(v) => setForce((f) => ({ ...f, [k]: v }))} />
+        ))}
+      </div>
+      <div aria-live="polite">
+        {anyYes && (
+          <div className="pop mt-5 rounded-r-xl border-l-4 border-urgent bg-urgent-soft px-4 py-4">
+            <p className="flex items-center gap-2 text-lg font-bold text-urgent">
+              <Icon name="alert" /> {t.forceIllegalTitle}
+            </p>
+            <p className="mt-1.5 text-[15px] leading-relaxed">{t.forceIllegalBody}</p>
+            <p className="mt-3 font-semibold">{t.forceStepsTitle}</p>
+            <ol className="mt-1.5 list-decimal space-y-1 pl-5 text-[15px] leading-relaxed">
+              {t.forceSteps.map((line) => <li key={line}>{line}</li>)}
+            </ol>
+          </div>
+        )}
+        {allNo && <p className="mt-5 rounded-xl bg-help-soft px-4 py-3 text-[15px] leading-relaxed text-help">{t.forceNone}</p>}
+      </div>
+    </section>
+  );
+}
+
+// Tap a legal word: its plain meaning opens below, and "Hear it" reads it aloud.
+// Meanings are written by the team (lib/glossary.js), never made up by AI.
+function LegalWords({ t, place, lang }) {
+  const words = legalWords(place, lang);
+  const [open, setOpen] = useState(null);
+  const [state, setState] = useState("idle"); // idle | loading | playing
+  const [noAudio, setNoAudio] = useState(false);
+  const audio = useRef(null);
+  const cache = useRef({});
+
+  useEffect(() => () => audio.current?.pause(), []);
+
+  function choose(id) {
+    audio.current?.pause();
+    setState("idle");
+    setNoAudio(false);
+    setOpen(open === id ? null : id);
+  }
+
+  async function hear(w) {
+    if (state === "playing") {
+      audio.current?.pause();
+      return setState("idle");
+    }
+    setState("loading");
+    setNoAudio(false);
+    try {
+      if (!cache.current[w.id]) {
+        const blob = await speak(`${w.word}. ${w.meaning}`, VOICE_FOR[lang]);
+        if (!blob) {
+          setNoAudio(true);
+          return setState("idle");
+        }
+        cache.current[w.id] = URL.createObjectURL(blob);
+      }
+      audio.current = new Audio(cache.current[w.id]);
+      audio.current.onended = () => setState("idle");
+      await audio.current.play();
+      setState("playing");
+    } catch (e) {
+      console.warn(e);
+      setNoAudio(true);
+      setState("idle");
+    }
+  }
+
+  const current = words.find((w) => w.id === open);
+  return (
+    <section className="mt-10" aria-labelledby="words-heading">
+      <h2 id="words-heading" className="text-lg font-bold">{t.legalWordsTitle}</h2>
+      <p className="mt-1 text-[15px] text-ink-soft">{t.legalWordsSub}</p>
+      <ul className="mt-3 flex flex-wrap gap-2">
+        {words.map((w) => (
+          <li key={w.id}>
+            <button
+              type="button"
+              onClick={() => choose(w.id)}
+              aria-expanded={open === w.id}
+              aria-controls="word-meaning"
+              className={`press min-h-11 rounded-full border-2 px-3.5 text-[15px] font-semibold ${
+                open === w.id ? "border-ink bg-ink text-white" : "border-line text-ink hover:border-ink hover:bg-page"
+              }`}
+            >
+              {w.word}
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div id="word-meaning" aria-live="polite">
+        {current && (
+          <div key={current.id} className="pop mt-3 rounded-xl bg-mark-soft px-4 py-3.5">
+            <p className="font-bold">{current.word}</p>
+            <p className="mt-1 text-[15px] leading-relaxed">{current.meaning}</p>
+            <button
+              type="button"
+              onClick={() => hear(current)}
+              disabled={state === "loading"}
+              aria-pressed={state === "playing"}
+              className="press mt-3 inline-flex min-h-11 items-center gap-2 rounded-xl border-2 border-ink bg-paper px-3.5 font-semibold disabled:opacity-50"
+            >
+              <Icon name={state === "playing" ? "pause" : "speaker"} className="h-5 w-5" />
+              {state === "loading" ? t.listening : state === "playing" ? t.stop : t.hearWord}
+            </button>
+            {noAudio && <p className="mt-2 text-sm text-ink-soft">{t.noAudio}</p>}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }

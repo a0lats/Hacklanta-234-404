@@ -103,6 +103,16 @@ export async function makeAnswer(body) {
   return (await postJSON("/answer", body)).blob();
 }
 
+// ---------- POST /summary → one-page PDF for legal aid ----------
+export async function makeSummary(body) {
+  if (DEMO) {
+    await wait(700);
+    const file = body.fields.jurisdiction === "lagos" ? "/sample/summary_lagos_example.pdf" : "/sample/summary_example.pdf";
+    return (await fetch(file)).blob();
+  }
+  return (await postJSON("/summary", body)).blob();
+}
+
 // ---------- GET /legal-aid ----------
 export async function getLegalAid(jurisdiction) {
   if (DEMO) return { places: FAKE_LEGAL_AID[jurisdiction] };
@@ -131,7 +141,7 @@ function demoCheck(fields, extras) {
     const required = MIN[extras.rent_period] ?? null;
     const ok = required == null ? null : given >= required;
     const cards = [];
-    if (ok === false) cards.push({ id: "notice_too_short", level: "amber", title: "This notice may be too short", body: `It gives you ${given} days. For your rent period the law may require at least ${required} days. Ask a lawyer or legal aid to check.` });
+    if (ok === false) cards.push({ id: "notice_too_short", level: "amber", title: "This notice may be too short", body: `It gives you ${given} days. For your rent period the law may require at least ${required} days, unless your tenancy agreement sets its own notice period. Ask a lawyer or legal aid to check.` });
     cards.push({ id: "lagos_unverified", level: "amber", title: "Rules not yet confirmed", body: "These Lagos notice periods are still being checked. Confirm with a lawyer before relying on them." });
     cards.push({ id: "court_order", level: "info", title: "Only a court can remove you", body: "A landlord should not force you out, change locks or remove your things without a court order. Keep every notice you receive." });
     return { jurisdiction: "lagos", notice_check: { ok, given_days: given, required_days: required, verified: false }, cards };
