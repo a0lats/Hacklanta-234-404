@@ -45,6 +45,11 @@ async function shrinkPhoto(file, maxSide = 1600) {
   }
 }
 
+// Render's free server sleeps after ~15 minutes. A cheap call wakes it up.
+export function wakeBackend() {
+  if (!DEMO) fetch(`${API_URL}/health`).catch(() => {});
+}
+
 // ---------- POST /read-notice ----------
 export async function readNotice(file, jurisdiction) {
   if (DEMO) {
